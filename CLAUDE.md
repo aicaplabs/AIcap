@@ -176,12 +176,21 @@ Commits: `f59e339`, `a2adeac`, `dd5d41f`, `ca9ff46`, `d79d9fd` — all on `devel
   legacy rows (written before 00010 ran) still verify against their
   stored hash — they form an unverified prefix that the chain extends from.
 
-## Pending work (Wave 4 remainder)
-These items were explicitly deferred and not yet started:
+- **Frontend refresh-token handling** — `onAuthStateChange` now branches on
+  the event type: `TOKEN_REFRESHED` patches only `session.accessToken` so a
+  silent background refresh updates the in-memory JWT without re-running
+  the checkout-return polling flow. All authenticated dashboard fetches
+  (`/api/history`, `/api/proof`, `/api/generate-key`, `/api/rotate-key`,
+  `/api/create-checkout-session`) now go through an `apiFetch` wrapper
+  that reads the live access_token from supabase-js's cache (rather than
+  React state) and, on a 401, calls `supabase.auth.refreshSession()` once
+  and retries — covering the race where a request flies just after JWT
+  expiry but before the auto-refresh tick. If the refresh itself fails,
+  supabase-js fires `SIGNED_OUT` which routes back to the login screen.
 
-1. **Frontend refresh-token handling** — Supabase JWTs expire; the frontend currently
-   has no `supabase.auth.onAuthStateChange` recovery path when a JWT expires
-   mid-session (user sees silent 401s on dashboard calls)
+## Wave 4 status
+All items shipped. Wave 4 is feature-complete on `development` pending
+final end-to-end verification against staging.
 
 ## Wave 3b/3c deployment checklist (run before merging to main)
 - [ ] RLS can stay as-is after Wave 3c — the frontend no longer reads `api_keys`

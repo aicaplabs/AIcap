@@ -70,13 +70,22 @@ export default function App() {
   // Fetch historical proof drills. Authenticated with the Supabase session
   // JWT (Wave 3b) — the backend derives user_id from the token's `sub`
   // claim and scopes the query to the caller's rows only.
+  //
+  // tokenOverride is honoured for the bootstrap call from
+  // fetchAndSetUserSession (which has the freshly-decoded token in hand
+  // and runs before apiFetch's supabase-js read returns the new session).
+  // Subsequent calls (post-refresh, post-save) go through apiFetch so a
+  // mid-session 401 triggers a refresh-and-retry instead of failing silently.
   const fetchHistoryData = async (tokenOverride = "") => {
     try {
-      const token = tokenOverride || (session ? session.accessToken : "");
-      const headers = {};
-      if (token) headers["Authorization"] = `Bearer ${token}`;
-
-      const response = await fetch(`${API_BASE_URL}/api/history`, { headers });
+      let response;
+      if (tokenOverride) {
+        response = await fetch(`${API_BASE_URL}/api/history`, {
+          headers: { "Authorization": `Bearer ${tokenOverride}` },
+        });
+      } else {
+        response = await apiFetch("/api/history");
+      }
       if (!response.ok) return;
       const data = await response.json();
       setHistoryData(data || []);
@@ -223,12 +232,9 @@ export default function App() {
     if (!session) return;
     setKeyBusy(true);
     try {
-      const response = await fetch(`${API_BASE_URL}/api/generate-key`, {
+      const response = await apiFetch("/api/generate-key", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${session.accessToken}`,
-        },
+        headers: { "Content-Type": "application/json" },
       });
       if (response.status === 409) {
         // Someone already has a key; offer rotate instead.
@@ -255,12 +261,9 @@ export default function App() {
     )) return;
     setKeyBusy(true);
     try {
-      const response = await fetch(`${API_BASE_URL}/api/rotate-key`, {
+      const response = await apiFetch("/api/rotate-key", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${session.accessToken}`,
-        },
+        headers: { "Content-Type": "application/json" },
       });
       if (!response.ok) throw new Error(await response.text());
       const data = await response.json();
@@ -286,25 +289,64 @@ export default function App() {
       // both fire fetchAndSetUserSession simultaneously on the checkout-return
       // URL, which caused a 409 from the second /api/generate-key attempt and
       // left the session in an inconsistent state.
-      const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-        if (session && session.user) {
-          fetchAndSetUserSession(session);
-        } else {
+      //
+      // TOKEN_REFRESHED fires whenever supabase-js silently refreshes the
+      // JWT in the background (default cadence: ~10 min before expiry).
+      // We must NOT re-run fetchAndSetUserSession on those events — that
+      // would re-fire the checkout-return polling and reset hasKey/tier
+      // mid-session. Instead, just patch the in-memory accessToken so
+      // subsequent backend calls send the fresh JWT. Without this hook,
+      // the React state held the old JWT past expiry and dashboard
+      // requests started returning silent 401s.
+      const { data: { subscription } } = supabase.auth.onAuthStateChange((event, sbSession) => {
+        if (!sbSession || !sbSession.user) {
           setSession(null);
+          return;
         }
+        if (event === 'TOKEN_REFRESHED') {
+          setSession(prev => prev ? { ...prev, accessToken: sbSession.access_token } : prev);
+          return;
+        }
+        fetchAndSetUserSession(sbSession);
       });
 
       return () => subscription.unsubscribe();
     }
   }, []);
 
+  // Authenticated fetch wrapper. Always reads the current access_token from
+  // supabase-js's cache (which is kept fresh by background auto-refresh)
+  // rather than from React state, so a request initiated just after a
+  // silent refresh doesn't fire with the stale token. On 401 we explicitly
+  // call refreshSession() once and retry — this covers the race where the
+  // request flies just after the JWT expires but before the auto-refresh
+  // has run. If the refresh fails (truly expired refresh token), we
+  // surface the original 401 to the caller; the resulting SIGNED_OUT
+  // event from supabase-js will route the user back to the login screen
+  // via the onAuthStateChange handler above.
+  const apiFetch = async (path, options = {}) => {
+    const { data: { session: live } } = await supabase.auth.getSession();
+    const headers = { ...(options.headers || {}) };
+    if (live?.access_token) headers["Authorization"] = `Bearer ${live.access_token}`;
+
+    let resp = await fetch(`${API_BASE_URL}${path}`, { ...options, headers });
+    if (resp.status !== 401) return resp;
+
+    const { data, error } = await supabase.auth.refreshSession();
+    if (error || !data?.session) return resp;
+    // Mirror the freshly-refreshed token into React state so other
+    // components reading session.accessToken see the new value.
+    setSession(prev => prev ? { ...prev, accessToken: data.session.access_token } : prev);
+    headers["Authorization"] = `Bearer ${data.session.access_token}`;
+    return await fetch(`${API_BASE_URL}${path}`, { ...options, headers });
+  };
+
   const fetchHistoricalProof = async (hash) => {
     try {
-      const headers = {};
       // Wave 3b: dashboard route, authenticated with the Supabase JWT.
-      if (session && session.accessToken) headers["Authorization"] = `Bearer ${session.accessToken}`;
-
-      const response = await fetch(`${API_BASE_URL}/api/proof?hash=${hash}`, { headers });
+      // Wave 4: routed through apiFetch so a stale token gets refreshed
+      // and retried on 401 instead of silently returning empty.
+      const response = await apiFetch(`/api/proof?hash=${encodeURIComponent(hash)}`);
       if (response.ok) {
         const data = await response.json();
         setHistoricalProof({ hash, markdown: data.markdown });
@@ -385,12 +427,9 @@ export default function App() {
     try {
       // The backend derives userID + email from the verified Supabase JWT,
       // so there is no need to (and no point in) supplying them in the body.
-      const response = await fetch(`${API_BASE_URL}/api/create-checkout-session`, {
+      const response = await apiFetch("/api/create-checkout-session", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${session.accessToken}`,
-        },
+        headers: { "Content-Type": "application/json" },
       });
 
       if (!response.ok) {
