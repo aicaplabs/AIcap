@@ -192,6 +192,45 @@ Commits: `f59e339`, `a2adeac`, `dd5d41f`, `ca9ff46`, `d79d9fd` — all on `devel
 All items shipped. Wave 4 is feature-complete on `development` pending
 final end-to-end verification against staging.
 
+### Wave 5 (in progress — frontend hygiene)
+Driven by the 2026-04-26 reassessment in `documentation/analysis_results.md`,
+which flagged that `App.jsx` had grown to 1059 lines (worse than the
+original 729-line analysis baseline). Wave 5 splits the monolith and
+adds the first frontend tests.
+
+- **Frontend componentization** — break `frontend/src/App.jsx` into:
+  - `lib/supabase.js` — Supabase client + `apiFetch` wrapper (live-token
+    read + 401 refresh-and-retry, moved out of `App.jsx`)
+  - `lib/annexIV.js` — pure helper that builds the Annex IV markdown
+    template from a scan + optional historical record
+  - `components/Header.jsx` — branding bar + sign-out + dev rescan button
+  - `components/LandingAuth.jsx` — marketing copy + login/signup form
+  - `components/CheckoutProcessing.jsx` — Stripe-return spinner card
+  - `components/Paywall.jsx` — Pro upgrade CTA
+  - `components/KeyVault.jsx` — three-state API-key panel
+    (revealed → has-key → no-key)
+  - `components/HistoryTable.jsx` — proof-drill audit ledger
+  - `components/AnnexIVPreview.jsx` — markdown preview + download button
+  - `components/ProDashboard.jsx` — composes the cloud-SaaS Pro view
+  - `components/LocalDashboard.jsx` — composes the local-dev view
+    (db-config card, posture card, annex action, BOM table, FinOps table)
+  After the split, `App.jsx` is the top-level state machine + view
+  router only — auth state, session bootstrap, view selection.
+
+- **Frontend tests (first-ever)** — Vitest + React Testing Library:
+  - `apiFetch.test.js` — confirms 401 triggers `refreshSession` once
+    and retries with the new token, and that a non-401 response is
+    returned untouched
+  - `KeyVault.test.jsx` — three-state UI rendering (no-key, has-key,
+    revealed), button states during async ops
+  Frontend tests run via `npm test`. CI (Wave 4 workflow) extended
+  to invoke them on every push/PR.
+
+## Pending work (Wave 5 remainder)
+None — Wave 5 is scoped to the split + first tests only. Tier A and
+Tier B items from the reassessment (idempotent save-proof, Stripe
+status reflection, risk-register population) are queued for Wave 6.
+
 ## Wave 3b/3c deployment checklist (run before merging to main)
 - [ ] RLS can stay as-is after Wave 3c — the frontend no longer reads `api_keys`
       directly, so `auth.uid() = user_id` row policies are sufficient as a
