@@ -1,0 +1,66 @@
+import React from 'react';
+
+import KeyVault from './KeyVault.jsx';
+import HistoryTable from './HistoryTable.jsx';
+import AnnexIVPreview from './AnnexIVPreview.jsx';
+
+// Composition layer for the cloud-SaaS Pro view: welcome banner with
+// CI snippet, KeyVault, audit ledger, optional historical Annex IV
+// preview. All state is owned by the App and passed down — this
+// component is mostly layout.
+export default function ProDashboard({
+  session,
+  revealedKey,
+  onSetRevealedKey,
+  onHasKeyChange,
+  onTokenRefresh,
+  historyData,
+  onHistoryRowClick,
+  historicalProof,
+}) {
+  return (
+    <div className="space-y-6 max-w-5xl mx-auto animate-in fade-in duration-500">
+      {/* Welcome banner + CI snippet + KeyVault */}
+      <div className="bg-indigo-600 p-8 rounded-xl shadow-sm text-white flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
+        <div className="max-w-2xl">
+          <h2 className="text-2xl font-bold mb-2">
+            Welcome back, {session.user.email.split('@')[0]}
+          </h2>
+          <p className="text-indigo-100 text-sm">
+            To maintain EU AI Act compliance without exposing your proprietary source code, the AIcap scanner runs natively inside your own CI/CD infrastructure. Connect your repository using your secret API key.
+          </p>
+
+          <div className="mt-6 bg-slate-900/80 p-4 rounded-lg font-mono text-sm text-indigo-300 overflow-x-auto border border-indigo-500/30">
+            <p className="text-slate-500 mb-2"># Add this to your .github/workflows/build.yml</p>
+            <p><span className="text-pink-400">-</span> <span className="text-blue-400">name</span>: Run EU AI Act Compliance Scan</p>
+            <p>  <span className="text-blue-400">uses</span>: istrategeorge/AIcap@v1.0.0-beta</p>
+            <p>  <span className="text-blue-400">with</span>:</p>
+            <p>    <span className="text-blue-400">api-key</span>: {'${{ secrets.AICAP_API_KEY }}'}</p>
+          </div>
+        </div>
+
+        {/* API key panel — one-time reveal model (Wave 3b).
+           The plaintext key is only ever shown once, immediately after
+           generation or rotation, and is stored nowhere the browser can
+           re-read. If the user loses it, they rotate to issue a new one. */}
+        <KeyVault
+          session={session}
+          revealedKey={revealedKey}
+          onSetRevealedKey={onSetRevealedKey}
+          onHasKeyChange={onHasKeyChange}
+          onTokenRefresh={onTokenRefresh}
+        />
+      </div>
+
+      <HistoryTable
+        records={historyData}
+        onRowClick={onHistoryRowClick}
+        emptyHint="No proof drills recorded yet. Install the GitHub Action to begin syncing!"
+      />
+
+      {historicalProof && (
+        <AnnexIVPreview scanData={null} historicalProof={historicalProof} mode="historical" />
+      )}
+    </div>
+  );
+}
