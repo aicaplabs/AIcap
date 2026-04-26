@@ -41,23 +41,27 @@ Two distinct auth schemes, each for a different caller:
 
 | Caller | Scheme | Routes |
 |--------|--------|--------|
-| Browser (dashboard) | Supabase session JWT (`RequireSupabaseJWT`) | `/api/history`, `/api/proof`, `/api/create-checkout-session`, `/api/generate-key`, `/api/rotate-key`, `/api/verify-checkout`, `/api/me` |
+| Browser (dashboard) | Supabase session JWT (`RequireSupabaseJWT`) | `/api/history`, `/api/proof`, `/api/verify-chain`, `/api/create-checkout-session`, `/api/generate-key`, `/api/rotate-key`, `/api/verify-checkout`, `/api/me` |
 | CI pipeline | API key hash (`RequireAPIKey`) | `/api/save-proof` |
 
 **API keys are hashed at rest** (SHA-256, column `token_hash`). The plaintext is returned exactly once from `/api/generate-key` or `/api/rotate-key` and never stored. `HashAPIKey(raw)` in `pkg/auth` is the canonical hash function.
 
-## Database schema (migrations 00001–00009)
+## Database schema (migrations 00001–00010)
 ```
 api_keys:       id, user_id (UNIQUE), token_hash, stripe_customer_id,
                 subscription_tier, scans_this_month, created_at
 proof_drills:   id, project_id, commit_sha, ai_bom_json, risk_register_state,
-                annex_iv_markdown, crypto_hash, user_id (NOT NULL), created_at
+                annex_iv_markdown, crypto_hash, prev_hash, user_id (NOT NULL),
+                created_at
 projects:       id, name (UNIQUE), repository_url, created_at
 stripe_events:  event_id (PK), event_type, received_at   ← idempotency table
 schema_migrations: filename, applied_at
 ```
 Key constraints: `api_keys.user_id` is UNIQUE (one key per user).
 `proof_drills.user_id` is NOT NULL (Wave 3b removed the NULL bridge).
+`proof_drills.prev_hash` (Wave 4) chains each row to its predecessor's
+`crypto_hash` per user, so a tampered or deleted historical row breaks
+the chain at every later link. NULL on the genesis row of a user's chain.
 
 ## Running locally
 ```bash
@@ -159,13 +163,23 @@ Commits: `f59e339`, `a2adeac`, `dd5d41f`, `ca9ff46`, `d79d9fd` — all on `devel
   restart). `/readyz` returns 503 when the DB ping fails so the orchestrator
   pulls the pod out of the LB. `/healthz` is kept as an alias of `/readyz`
   so existing Render probes don't break during a rolling probe-URL update.
+- **Hash-chain ledger anchoring** — migration 00010 adds `prev_hash` on
+  `proof_drills`. Each save-proof opens a transaction, takes a per-user
+  advisory lock (`pg_advisory_xact_lock(hashtextextended(user_id, 0))`),
+  reads the user's chain head, and writes a new row whose `crypto_hash`
+  is `sha256(commit_sha || ai_bom_json || prev_hash)`. The advisory lock
+  serialises concurrent inserts for one user without blocking other
+  users. `GET /api/verify-chain` walks the caller's chain and returns
+  `{ok:false, brokenAt, reason}` on the first divergence (payload edit,
+  prev_hash mismatch, or NULL prev_hash on a non-genesis row). The hash
+  formula degrades to the pre-Wave-4 form when `prev_hash` is empty so
+  legacy rows (written before 00010 ran) still verify against their
+  stored hash — they form an unverified prefix that the chain extends from.
 
 ## Pending work (Wave 4 remainder)
 These items were explicitly deferred and not yet started:
 
-1. **Merkle-tree ledger anchoring** — tamper-evidence for `proof_drills` rows using
-   a hash-chain so a DB admin can't silently edit historical records
-2. **Frontend refresh-token handling** — Supabase JWTs expire; the frontend currently
+1. **Frontend refresh-token handling** — Supabase JWTs expire; the frontend currently
    has no `supabase.auth.onAuthStateChange` recovery path when a JWT expires
    mid-session (user sees silent 401s on dashboard calls)
 
