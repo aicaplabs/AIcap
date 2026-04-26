@@ -267,7 +267,22 @@ func RegisterRoutes(mux *http.ServeMux, db *sql.DB, isCloudSaaS bool) {
 			}
 		}
 
-		cryptoHash := computeChainHash(commitSha, bomJSON, prevHash.String)
+		// Hash on Postgres's canonical JSONB text, not Go's json.Marshal output.
+		// Postgres normalises JSONB on storage (whitespace, key ordering) so the
+		// bytes returned by SELECT differ from the bytes we just marshaled. If
+		// we hashed the raw Go output here, every verify-chain run would report
+		// a payload-tamper false positive on its own writes. Round-tripping
+		// through `$1::jsonb::text` returns exactly what verify-chain will read.
+		var canonicalBOM string
+		if err := tx.QueryRowContext(r.Context(),
+			`SELECT $1::jsonb::text`, string(bomJSON),
+		).Scan(&canonicalBOM); err != nil {
+			httplog.From(r.Context()).Error("canonicalise bom failed", slog.Any("error", err))
+			http.Error(w, "Internal server error", http.StatusInternalServerError)
+			return
+		}
+
+		cryptoHash := computeChainHash(commitSha, []byte(canonicalBOM), prevHash.String)
 
 		if _, err := tx.ExecContext(r.Context(), `
 			INSERT INTO proof_drills (project_id, user_id, commit_sha, ai_bom_json, annex_iv_markdown, crypto_hash, prev_hash)
@@ -444,18 +459,22 @@ func RegisterRoutes(mux *http.ServeMux, db *sql.DB, isCloudSaaS bool) {
 			return
 		}
 
+		// Cast to ::text so the bytes we hash are exactly what the insert
+		// path canonicalised through Postgres — see the matching cast in
+		// save-proof. Without this, JSONB normalisation makes every verify
+		// look like a tamper.
 		var rows *sql.Rows
 		var err error
 		if isCloudSaaS {
 			userID := auth.UserID(r)
 			rows, err = db.QueryContext(r.Context(), `
-				SELECT commit_sha, ai_bom_json, crypto_hash, prev_hash
+				SELECT commit_sha, ai_bom_json::text, crypto_hash, prev_hash
 				FROM proof_drills
 				WHERE user_id = $1
 				ORDER BY created_at ASC, id ASC`, userID)
 		} else {
 			rows, err = db.QueryContext(r.Context(), `
-				SELECT commit_sha, ai_bom_json, crypto_hash, prev_hash
+				SELECT commit_sha, ai_bom_json::text, crypto_hash, prev_hash
 				FROM proof_drills
 				ORDER BY created_at ASC, id ASC`)
 		}
