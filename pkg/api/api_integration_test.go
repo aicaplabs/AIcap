@@ -616,3 +616,200 @@ func TestStripeWebhook_RejectsBadSignature(t *testing.T) {
 		t.Errorf("stripe_events inserted on bad signature: rows = %d, want 0", rows)
 	}
 }
+
+// --- Hash-chain anchoring (Wave 4) ------------------------------------------
+// These tests cover migration 00010: each save-proof writes a row whose
+// crypto_hash mixes in the previous row's hash, and /api/verify-chain
+// walks the chain and reports tampering.
+
+// saveProof is a small CLI-style helper used by the chain tests below to
+// keep the noise down — they care about the chain shape, not request
+// plumbing.
+func saveProof(t *testing.T, srv *httptest.Server, token string, bom types.AIBOM) {
+	t.Helper()
+	b, _ := json.Marshal(bom)
+	req, _ := http.NewRequest(http.MethodPost, srv.URL+"/api/save-proof", bytes.NewReader(b))
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("save-proof: %v", err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("save-proof status = %d, want 201", resp.StatusCode)
+	}
+}
+
+func getVerifyChain(t *testing.T, srv *httptest.Server, jwt string) map[string]any {
+	t.Helper()
+	req, _ := http.NewRequest(http.MethodGet, srv.URL+"/api/verify-chain", nil)
+	req.Header.Set("Authorization", "Bearer "+jwt)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("verify-chain: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("verify-chain status = %d, want 200", resp.StatusCode)
+	}
+	var out map[string]any
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	return out
+}
+
+// TestSaveProof_ChainsHashes proves that consecutive save-proof calls for
+// the same user produce a linked chain: each row's prev_hash equals the
+// previous row's crypto_hash, the genesis row's prev_hash is NULL, and
+// subsequent crypto_hashes differ even when the BOM payload is identical
+// (because prev_hash changes).
+func TestSaveProof_ChainsHashes(t *testing.T) {
+	srv, db := setup(t)
+	userID := "00000000-0000-0000-0000-000000000100"
+	token := seedAPIKey(t, db, userID, "pro")
+
+	// Same BOM three times — only the chain link should differentiate the rows.
+	for i := 0; i < 3; i++ {
+		saveProof(t, srv, token, types.AIBOM{ProjectName: "demo/repo", CommitSha: "sha-x"})
+	}
+
+	rows, err := db.Query(`
+		SELECT crypto_hash, prev_hash
+		FROM proof_drills
+		WHERE user_id = $1
+		ORDER BY created_at ASC, id ASC`, userID)
+	if err != nil {
+		t.Fatalf("query: %v", err)
+	}
+	defer rows.Close()
+
+	var hashes []string
+	var prevs []sql.NullString
+	for rows.Next() {
+		var h string
+		var p sql.NullString
+		if err := rows.Scan(&h, &p); err != nil {
+			t.Fatalf("scan: %v", err)
+		}
+		hashes = append(hashes, h)
+		prevs = append(prevs, p)
+	}
+	if len(hashes) != 3 {
+		t.Fatalf("got %d rows, want 3", len(hashes))
+	}
+	if prevs[0].Valid {
+		t.Errorf("genesis row has prev_hash = %q, want NULL", prevs[0].String)
+	}
+	for i := 1; i < 3; i++ {
+		if !prevs[i].Valid {
+			t.Errorf("row %d prev_hash is NULL, want chain link", i)
+		} else if prevs[i].String != hashes[i-1] {
+			t.Errorf("row %d prev_hash = %q, want %q", i, prevs[i].String, hashes[i-1])
+		}
+	}
+	// Same BOM but different chain → different hashes.
+	if hashes[0] == hashes[1] || hashes[1] == hashes[2] {
+		t.Errorf("hashes collide despite chain links: %v", hashes)
+	}
+}
+
+// TestVerifyChain_OK returns ok:true when nothing has been tampered with.
+func TestVerifyChain_OK(t *testing.T) {
+	srv, db := setup(t)
+	userID := "00000000-0000-0000-0000-000000000101"
+	token := seedAPIKey(t, db, userID, "pro")
+	for i := 0; i < 3; i++ {
+		saveProof(t, srv, token, types.AIBOM{ProjectName: "demo", CommitSha: fmt.Sprintf("sha-%d", i)})
+	}
+
+	got := getVerifyChain(t, srv, mintJWT(t, userID, "alice@example.com"))
+	if ok, _ := got["ok"].(bool); !ok {
+		t.Errorf("verify-chain: ok = %v, want true (got %v)", got["ok"], got)
+	}
+	if got["length"] != float64(3) {
+		t.Errorf("verify-chain: length = %v, want 3", got["length"])
+	}
+}
+
+// TestVerifyChain_DetectsPayloadTamper proves the value of the chain: if
+// an attacker silently rewrites a historical row's payload, verify-chain
+// reports the tampered hash and stops walking.
+func TestVerifyChain_DetectsPayloadTamper(t *testing.T) {
+	srv, db := setup(t)
+	userID := "00000000-0000-0000-0000-000000000102"
+	token := seedAPIKey(t, db, userID, "pro")
+	for i := 0; i < 3; i++ {
+		saveProof(t, srv, token, types.AIBOM{ProjectName: "demo", CommitSha: fmt.Sprintf("sha-%d", i)})
+	}
+
+	// Forge edit: rewrite the middle row's commit_sha. crypto_hash stays
+	// the original, so the recomputed hash will diverge.
+	if _, err := db.Exec(`
+		UPDATE proof_drills SET commit_sha = 'forged'
+		WHERE user_id = $1 AND commit_sha = 'sha-1'`, userID); err != nil {
+		t.Fatalf("forge: %v", err)
+	}
+
+	got := getVerifyChain(t, srv, mintJWT(t, userID, "alice@example.com"))
+	if ok, _ := got["ok"].(bool); ok {
+		t.Errorf("verify-chain: ok = true after payload tamper, want false (got %v)", got)
+	}
+	if reason, _ := got["reason"].(string); reason == "" {
+		t.Errorf("verify-chain: missing reason on tamper detection (got %v)", got)
+	}
+}
+
+// TestVerifyChain_DetectsRowDeletion proves that deleting a middle row
+// breaks the chain — the next row's prev_hash no longer matches the new
+// "previous" row's crypto_hash.
+func TestVerifyChain_DetectsRowDeletion(t *testing.T) {
+	srv, db := setup(t)
+	userID := "00000000-0000-0000-0000-000000000103"
+	token := seedAPIKey(t, db, userID, "pro")
+	for i := 0; i < 3; i++ {
+		saveProof(t, srv, token, types.AIBOM{ProjectName: "demo", CommitSha: fmt.Sprintf("sha-%d", i)})
+	}
+
+	// Delete the middle row — chain link from row 3 → row 1 is now broken.
+	if _, err := db.Exec(`
+		DELETE FROM proof_drills WHERE user_id = $1 AND commit_sha = 'sha-1'`, userID); err != nil {
+		t.Fatalf("delete: %v", err)
+	}
+
+	got := getVerifyChain(t, srv, mintJWT(t, userID, "alice@example.com"))
+	if ok, _ := got["ok"].(bool); ok {
+		t.Errorf("verify-chain: ok = true after deletion, want false (got %v)", got)
+	}
+}
+
+// TestVerifyChain_PerUserChains proves chains don't cross tenants: Alice
+// tampering with her own ledger doesn't change Bob's verification result.
+func TestVerifyChain_PerUserChains(t *testing.T) {
+	srv, db := setup(t)
+	alice := "00000000-0000-0000-0000-000000000104"
+	bob := "00000000-0000-0000-0000-000000000105"
+	aliceTok := seedAPIKey(t, db, alice, "pro")
+	bobTok := seedAPIKey(t, db, bob, "pro")
+	saveProof(t, srv, aliceTok, types.AIBOM{ProjectName: "alice/demo", CommitSha: "a1"})
+	saveProof(t, srv, aliceTok, types.AIBOM{ProjectName: "alice/demo", CommitSha: "a2"})
+	saveProof(t, srv, bobTok, types.AIBOM{ProjectName: "bob/demo", CommitSha: "b1"})
+	saveProof(t, srv, bobTok, types.AIBOM{ProjectName: "bob/demo", CommitSha: "b2"})
+
+	// Tamper Alice's ledger only.
+	if _, err := db.Exec(`
+		UPDATE proof_drills SET commit_sha = 'forged'
+		WHERE user_id = $1 AND commit_sha = 'a1'`, alice); err != nil {
+		t.Fatalf("forge: %v", err)
+	}
+
+	aliceResult := getVerifyChain(t, srv, mintJWT(t, alice, "alice@example.com"))
+	if ok, _ := aliceResult["ok"].(bool); ok {
+		t.Errorf("alice: ok = true after tamper, want false")
+	}
+	bobResult := getVerifyChain(t, srv, mintJWT(t, bob, "bob@example.com"))
+	if ok, _ := bobResult["ok"].(bool); !ok {
+		t.Errorf("bob: ok = false despite untampered chain (got %v)", bobResult)
+	}
+}

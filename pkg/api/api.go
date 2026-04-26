@@ -214,23 +214,74 @@ func RegisterRoutes(mux *http.ServeMux, db *sql.DB, isCloudSaaS bool) {
 		}
 		annexIVMarkdown := compliance.GenerateAnnexIVMarkdown(bom)
 
-		h := sha256.New()
-		h.Write([]byte(commitSha))
-		h.Write(bomJSON)
-		cryptoHash := hex.EncodeToString(h.Sum(nil))
-
 		// Use sql.NullString so that an empty userID (possible during a
 		// schema-migration race where the middleware ran on old code) is stored
 		// as NULL rather than rejected as an invalid UUID literal.
 		nullableUserID := sql.NullString{String: userID, Valid: userID != ""}
 
-		_, err = db.Exec(`
-			INSERT INTO proof_drills (project_id, user_id, commit_sha, ai_bom_json, annex_iv_markdown, crypto_hash)
-			VALUES ($1, $2, $3, $4, $5, $6)`,
-			projectID, nullableUserID, commitSha, bomJSON, annexIVMarkdown, cryptoHash,
-		)
+		// --- Hash-chain anchoring (Wave 4) -----------------------------------
+		// Each row's crypto_hash mixes in the previous row's crypto_hash so
+		// tampering with any historical row breaks the link to every later row.
+		// Verification (GET /api/verify-chain) walks the chain and reports the
+		// first divergence.
+		//
+		// We need the read-of-tail and the insert to be one atomic step,
+		// otherwise two concurrent inserts for the same user would both
+		// observe the same prev_hash and produce a forked chain. A
+		// transaction-scoped advisory lock keyed on user_id serialises
+		// inserts per user without holding a row lock (the genesis case has
+		// no row to lock) and without serialising across users.
+		tx, err := db.BeginTx(r.Context(), nil)
 		if err != nil {
+			httplog.From(r.Context()).Error("begin tx failed", slog.Any("error", err))
+			http.Error(w, "Internal server error", http.StatusInternalServerError)
+			return
+		}
+		defer tx.Rollback()
+
+		if userID != "" {
+			// hashtextextended produces a stable bigint from the user_id string,
+			// so concurrent inserts for the same user serialise on the same
+			// advisory-lock key. Different users get different keys and run
+			// in parallel.
+			if _, err := tx.ExecContext(r.Context(),
+				`SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`,
+				userID); err != nil {
+				httplog.From(r.Context()).Error("advisory lock failed", slog.Any("error", err))
+				http.Error(w, "Internal server error", http.StatusInternalServerError)
+				return
+			}
+		}
+
+		var prevHash sql.NullString
+		if userID != "" {
+			err = tx.QueryRowContext(r.Context(), `
+				SELECT crypto_hash FROM proof_drills
+				WHERE user_id = $1
+				ORDER BY created_at DESC
+				LIMIT 1`, userID).Scan(&prevHash)
+			if err != nil && err != sql.ErrNoRows {
+				httplog.From(r.Context()).Error("read chain head failed", slog.Any("error", err))
+				http.Error(w, "Internal server error", http.StatusInternalServerError)
+				return
+			}
+		}
+
+		cryptoHash := computeChainHash(commitSha, bomJSON, prevHash.String)
+
+		if _, err := tx.ExecContext(r.Context(), `
+			INSERT INTO proof_drills (project_id, user_id, commit_sha, ai_bom_json, annex_iv_markdown, crypto_hash, prev_hash)
+			VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+			projectID, nullableUserID, commitSha, bomJSON, annexIVMarkdown, cryptoHash,
+			sql.NullString{String: prevHash.String, Valid: prevHash.Valid},
+		); err != nil {
 			httplog.From(r.Context()).Error("insert proof_drill failed", slog.Any("error", err))
+			http.Error(w, "Internal server error", http.StatusInternalServerError)
+			return
+		}
+
+		if err := tx.Commit(); err != nil {
+			httplog.From(r.Context()).Error("commit tx failed", slog.Any("error", err))
 			http.Error(w, "Internal server error", http.StatusInternalServerError)
 			return
 		}
@@ -363,6 +414,118 @@ func RegisterRoutes(mux *http.ServeMux, db *sql.DB, isCloudSaaS bool) {
 		mux.HandleFunc("/api/proof", withCORS(auth.RequireSupabaseJWT(proofHandler)))
 	} else {
 		mux.HandleFunc("/api/proof", proofHandler)
+	}
+
+	// --- Chain verification -------------------------------------------------
+	// /api/verify-chain walks the caller's proof_drills in chronological order
+	// and reports the first row whose stored crypto_hash diverges from the
+	// hash recomputed from (commit_sha, ai_bom_json, prev_hash). A clean
+	// chain returns {ok: true, length: N}; a tampered chain returns
+	// {ok: false, brokenAt: <hash>, reason: "..."}.
+	//
+	// Tamper modes detected:
+	//   * Row payload edited in place (recomputed hash != stored hash).
+	//   * Row's prev_hash points at something other than the actual previous
+	//     row's hash (chain reordering / row deletion).
+	//
+	// Rows written before migration 00010 have prev_hash = NULL even when
+	// they aren't the genesis. We tolerate one NULL prev_hash at the chain
+	// start and flag any subsequent NULL as a deletion.
+	verifyChainHandler := func(w http.ResponseWriter, r *http.Request) {
+		cors(w, r)
+		w.Header().Set("Access-Control-Allow-Methods", "GET, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+		if r.Method == http.MethodOptions {
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		if db == nil {
+			http.Error(w, "Database not configured", http.StatusInternalServerError)
+			return
+		}
+
+		var rows *sql.Rows
+		var err error
+		if isCloudSaaS {
+			userID := auth.UserID(r)
+			rows, err = db.QueryContext(r.Context(), `
+				SELECT commit_sha, ai_bom_json, crypto_hash, prev_hash
+				FROM proof_drills
+				WHERE user_id = $1
+				ORDER BY created_at ASC, id ASC`, userID)
+		} else {
+			rows, err = db.QueryContext(r.Context(), `
+				SELECT commit_sha, ai_bom_json, crypto_hash, prev_hash
+				FROM proof_drills
+				ORDER BY created_at ASC, id ASC`)
+		}
+		if err != nil {
+			httplog.From(r.Context()).Error("verify-chain query failed", slog.Any("error", err))
+			http.Error(w, "Internal server error", http.StatusInternalServerError)
+			return
+		}
+		defer rows.Close()
+
+		var (
+			length         int
+			expectedPrev   string
+			seenFirst      bool
+		)
+		for rows.Next() {
+			var commitSha, storedHash string
+			var bomJSON []byte
+			var prevHash sql.NullString
+			if err := rows.Scan(&commitSha, &bomJSON, &storedHash, &prevHash); err != nil {
+				httplog.From(r.Context()).Error("verify-chain scan failed", slog.Any("error", err))
+				http.Error(w, "Internal server error", http.StatusInternalServerError)
+				return
+			}
+			length++
+
+			// Chain-link check (skip for the first row's NULL prev_hash, which
+			// is either the genesis or a pre-Wave-4 legacy row).
+			if seenFirst {
+				if !prevHash.Valid {
+					json.NewEncoder(w).Encode(map[string]any{
+						"ok":       false,
+						"brokenAt": storedHash,
+						"reason":   "prev_hash is NULL on a non-genesis row (possible deletion)",
+						"length":   length,
+					})
+					return
+				}
+				if prevHash.String != expectedPrev {
+					json.NewEncoder(w).Encode(map[string]any{
+						"ok":       false,
+						"brokenAt": storedHash,
+						"reason":   "prev_hash does not match previous row's crypto_hash",
+						"length":   length,
+					})
+					return
+				}
+			}
+
+			// Per-row payload check.
+			recomputed := computeChainHash(commitSha, bomJSON, prevHash.String)
+			if recomputed != storedHash {
+				json.NewEncoder(w).Encode(map[string]any{
+					"ok":       false,
+					"brokenAt": storedHash,
+					"reason":   "stored crypto_hash does not match recomputed hash (row payload altered)",
+					"length":   length,
+				})
+				return
+			}
+
+			expectedPrev = storedHash
+			seenFirst = true
+		}
+		json.NewEncoder(w).Encode(map[string]any{"ok": true, "length": length})
+	}
+	if isCloudSaaS {
+		mux.HandleFunc("/api/verify-chain", withCORS(auth.RequireSupabaseJWT(verifyChainHandler)))
+	} else {
+		mux.HandleFunc("/api/verify-chain", verifyChainHandler)
 	}
 
 	// --- Stripe checkout ----------------------------------------------------
@@ -936,5 +1099,23 @@ func customerID(c *stripe.Customer) string {
 		return ""
 	}
 	return c.ID
+}
+
+// computeChainHash is the canonical crypto_hash formula for proof_drills.
+// Used by both save-proof (at insert) and verify-chain (at verify); they
+// must match exactly or every row looks tampered.
+//
+// When prevHash == "" we fall through to the pre-Wave-4 formula
+// (sha256(commit_sha || ai_bom_json)), so rows written before migration
+// 00010 still hash-match. New non-genesis rows mix in the previous
+// crypto_hash so any historical edit breaks every later link.
+func computeChainHash(commitSha string, bomJSON []byte, prevHash string) string {
+	h := sha256.New()
+	h.Write([]byte(commitSha))
+	h.Write(bomJSON)
+	if prevHash != "" {
+		h.Write([]byte(prevHash))
+	}
+	return hex.EncodeToString(h.Sum(nil))
 }
 
