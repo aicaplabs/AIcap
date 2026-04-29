@@ -279,10 +279,70 @@ Tier B items from the reassessment shipped in Wave 6.
   `TestSaveProof_AnnexIVContainsRiskRegister`).
 
 ## Pending work (Wave 6 remainder)
-None for Phases A+B. Remaining open items from the reassessment Tier C+D
-(no `CHANGELOG.md`, EU hosting migration, Helm chart, public landing
-page, programmatic SEO, GitLab/Bitbucket CI integrations) are queued
-for Wave 7+ — they are quarter-scale projects, not commit-scale.
+None for Phases A+B.
+
+### Wave 7a (shipped — Annex IV § 4 auto-population from IaC)
+
+The 2026-04-29 reassessment identified Annex IV's `[REQUIRES MANUAL INPUT]`
+placeholders for HITL, training-data provenance, bias monitoring, and
+prompt-injection defences as the largest remaining Phase 3 gap. Wave 7a
+closes it by parsing IaC + source files we already walk, looking for
+concrete signals.
+
+- **`pkg/scanner/governance.go`** — six detector functions, all
+  conservative (false negatives over false positives). HITL signals
+  from k8s manifest names matching `(?i)\b(review|approval|human|hitl|
+  moderation|feedback|judge|reviewer|escalation)\b` (word-bounded —
+  "preview-server" doesn't match), Argo Workflow `suspend:` steps,
+  and GitHub Actions `environment:` keys (only files under
+  `.github/workflows/`). Training-data signals from any `*.dvc` /
+  `dvc.yaml` / `dvc.lock`, Terraform `aws_s3_bucket` /
+  `google_storage_bucket` resources whose declared name OR inline
+  `bucket =` value matches the training-data pattern, and HuggingFace
+  `from datasets import load_dataset` calls in Python. Bias-monitoring
+  signals from Python imports of `fairlearn` / `aif360` /
+  `responsibleai` / `equalized_odds` and from those names appearing
+  in `requirements.txt` / `pyproject.toml`. Prompt-injection-defence
+  signals from imports of `lakera` / `lakera_guard` / `rebuff` /
+  `nemoguardrails` / `presidio_analyzer` / `garak` / `llm_guard` and
+  from manifests.
+
+- **`types.GovernanceTelemetry` + `types.GovernanceSignal`** — added
+  to `pkg/types/types.go`. New `Governance` field on `AIBOM` with
+  four buckets (HITL, TrainingData, BiasMonitoring,
+  PromptInjectionDefenses). Each signal carries
+  `{Source, Location, Evidence, Description}`.
+
+- **`compliance.GenerateAnnexIVMarkdown`** — § 3(c) (prompt-injection)
+  now branches: if any defence signals were detected, the section
+  emits `[x] Prompt-injection defences detected: <evidence>` with
+  per-signal descriptions; otherwise it keeps the original
+  `[REQUIRES MANUAL INPUT: …]`. § 4 sub-sections (HITL, Training
+  Data, Bias Monitoring) call a new `renderGovernanceSection`
+  helper that does the same evidence-or-placeholder pattern. The
+  contract: auditors see *evidence* or *prompt*, never silent
+  omission, and never both at once for the same control.
+
+- **Frontend `lib/annexIV.js`** — mirrored: `renderGovernance`
+  helper renders `scanData.governance.{hitl,trainingData,
+  biasMonitoring,promptInjectionDefenses}` if present, falls back
+  to placeholders when not. Local-dev preview thus shows the same
+  Annex IV shape as the persisted markdown.
+
+- **Tests** — 13 unit tests in `pkg/scanner/governance_test.go`
+  covering each detector + a `PerformScan` integration that drops
+  realistic IaC into a tempdir and asserts all four buckets
+  populate. 2 new unit tests in `pkg/scanner/scanner_test.go` cover
+  the Annex IV rendering (placeholder when empty, evidence when
+  populated, no double-render). 1 new integration test
+  (`TestSaveProof_AnnexIVContainsGovernance`) confirms persistence
+  end-to-end.
+
+## Pending work (Wave 7a remainder)
+None. Tier C+D items remain (no `CHANGELOG.md`, EU hosting migration,
+Helm chart, public landing page, programmatic SEO, GitLab/Bitbucket
+CI integrations) for Wave 7b+ — these are quarter-scale projects,
+not commit-scale.
 
 ## Wave 3b/3c deployment checklist (run before merging to main)
 - [ ] RLS can stay as-is after Wave 3c — the frontend no longer reads `api_keys`

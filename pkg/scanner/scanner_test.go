@@ -795,6 +795,80 @@ func TestComplianceGenerateAnnexIVMarkdown_ContainsAllSections(t *testing.T) {
 	}
 }
 
+// Wave 7a: when bom.Governance is empty (legacy scans, or projects with
+// no detectable IaC governance signals) the Annex IV § 4 sub-sections
+// must keep the original `[REQUIRES MANUAL INPUT]` placeholders so
+// auditors aren't misled into thinking we found controls we didn't.
+func TestAnnexIV_GovernancePlaceholders_WhenEmpty(t *testing.T) {
+	md := compliance.GenerateAnnexIVMarkdown(types.AIBOM{ProjectName: "x"})
+	for _, want := range []string{
+		"Human-in-the-loop (HITL) Controls:** `[REQUIRES MANUAL INPUT]`",
+		"Training Data Provenance:** `[REQUIRES MANUAL INPUT]`",
+		"Bias Monitoring:** `[REQUIRES MANUAL INPUT]`",
+		"[REQUIRES MANUAL INPUT: Detail prompt injection mitigation strategy]",
+	} {
+		if !strings.Contains(md, want) {
+			t.Errorf("empty Governance: Annex IV missing placeholder %q", want)
+		}
+	}
+}
+
+// Wave 7a: when bom.Governance carries signals, the corresponding
+// Annex IV sub-section must surface the evidence count + per-signal
+// description, and the placeholder must NOT be present (otherwise we
+// double-render and confuse auditors).
+func TestAnnexIV_GovernanceEvidence_WhenPopulated(t *testing.T) {
+	bom := types.AIBOM{
+		ProjectName: "x",
+		Governance: types.GovernanceTelemetry{
+			HITL: []types.GovernanceSignal{
+				{Source: "k8s manifest", Location: "deploy.yaml",
+					Evidence: "review-queue", Description: "HITL evidence."},
+			},
+			TrainingData: []types.GovernanceSignal{
+				{Source: "dvc", Location: "data.dvc",
+					Evidence: "data.dvc", Description: "DVC tracks training data."},
+			},
+			BiasMonitoring: []types.GovernanceSignal{
+				{Source: "python import", Location: "guard.py",
+					Evidence: "fairlearn", Description: "Fairlearn imported."},
+			},
+			PromptInjectionDefenses: []types.GovernanceSignal{
+				{Source: "python import", Location: "guard.py",
+					Evidence: "lakera", Description: "Lakera imported."},
+			},
+		},
+	}
+	md := compliance.GenerateAnnexIVMarkdown(bom)
+
+	// Each populated section must surface its description.
+	for _, want := range []string{
+		"HITL evidence.",
+		"DVC tracks training data.",
+		"Fairlearn imported.",
+		// 3(c) prompt-injection block lists evidence inline.
+		"Prompt-injection defences detected",
+		"`lakera`",
+	} {
+		if !strings.Contains(md, want) {
+			t.Errorf("populated Governance: Annex IV missing evidence %q", want)
+		}
+	}
+
+	// And the placeholder strings for HITL / training data / bias /
+	// prompt-injection MUST be gone — auditors shouldn't see both.
+	for _, banned := range []string{
+		"Human-in-the-loop (HITL) Controls:** `[REQUIRES MANUAL INPUT]`",
+		"Training Data Provenance:** `[REQUIRES MANUAL INPUT]`",
+		"Bias Monitoring:** `[REQUIRES MANUAL INPUT]`",
+		"[REQUIRES MANUAL INPUT: Detail prompt injection mitigation strategy]",
+	} {
+		if strings.Contains(md, banned) {
+			t.Errorf("populated Governance: placeholder leaked: %q", banned)
+		}
+	}
+}
+
 // --- Python Import Detection Tests ---
 
 func TestParsePythonSource_DetectsImportStatements(t *testing.T) {

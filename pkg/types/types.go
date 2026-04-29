@@ -21,13 +21,40 @@ type FinOpsFinding struct {
 
 // AIBOM represents the final Software Bill of Materials for AI
 type AIBOM struct {
-	ProjectName      string            `json:"projectName"`
-	CommitSha        string            `json:"commitSha,omitempty"`
-	ScannedFiles     int               `json:"scannedFiles"`
-	Dependencies     []AIDependency    `json:"dependencies"`
-	FinOps           []FinOpsFinding   `json:"finOps"`
-	PolicyViolations []PolicyViolation `json:"policyViolations,omitempty"`
-	Compliance       string            `json:"complianceStatus"`
+	ProjectName      string              `json:"projectName"`
+	CommitSha        string              `json:"commitSha,omitempty"`
+	ScannedFiles     int                 `json:"scannedFiles"`
+	Dependencies     []AIDependency      `json:"dependencies"`
+	FinOps           []FinOpsFinding     `json:"finOps"`
+	PolicyViolations []PolicyViolation   `json:"policyViolations,omitempty"`
+	Governance       GovernanceTelemetry `json:"governance,omitempty"`
+	Compliance       string              `json:"complianceStatus"`
+}
+
+// GovernanceTelemetry collects evidence of compliance controls discovered
+// during the scan. Each bucket maps to a section of Annex IV § 4 that
+// would otherwise be `[REQUIRES MANUAL INPUT]`. The presence of one or
+// more signals lets the Annex IV generator render concrete evidence
+// instead of a placeholder. Empty buckets fall back to the manual-input
+// prompt so we don't pretend to have found something we didn't.
+type GovernanceTelemetry struct {
+	HITL                    []GovernanceSignal `json:"hitl,omitempty"`
+	TrainingData            []GovernanceSignal `json:"trainingData,omitempty"`
+	BiasMonitoring          []GovernanceSignal `json:"biasMonitoring,omitempty"`
+	PromptInjectionDefenses []GovernanceSignal `json:"promptInjectionDefenses,omitempty"`
+}
+
+// GovernanceSignal is one piece of evidence for a governance control.
+// `Source` describes where it was found (e.g. "k8s manifest",
+// "terraform", "dvc", "python import"). `Evidence` is the raw match
+// (a service name, bucket name, library name) so auditors can verify
+// the heuristic. `Description` is the human-readable summary that
+// renders into Annex IV.
+type GovernanceSignal struct {
+	Source      string `json:"source"`
+	Location    string `json:"location"`
+	Evidence    string `json:"evidence"`
+	Description string `json:"description"`
 }
 
 // PolicyViolation represents a policy-as-code rule violation
