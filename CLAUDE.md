@@ -228,8 +228,61 @@ adds the first frontend tests.
 
 ## Pending work (Wave 5 remainder)
 None — Wave 5 is scoped to the split + first tests only. Tier A and
-Tier B items from the reassessment (idempotent save-proof, Stripe
-status reflection, risk-register population) are queued for Wave 6.
+Tier B items from the reassessment shipped in Wave 6.
+
+### Wave 6 (shipped — backend correctness + Article 9 risk register)
+
+#### Phase A: Correctness gaps from the 2026-04-26 reassessment
+- **Idempotent `/api/save-proof` by `(user_id, commit_sha)`** — migration
+  00011 adds a partial UNIQUE index (excluding NULL user_ids so local-dev
+  still works without auth). The handler does a SELECT-first short-circuit
+  inside the existing per-user advisory lock; a CI retry returns 200 OK
+  with the existing `cryptoHash` and `{idempotent: true}`, no duplicate
+  audit row, no chain pollution. Response body now always carries
+  `{status, cryptoHash, idempotent}` instead of just `{status}`.
+- **`customer.subscription.updated` reflects status into the tier** —
+  `active`/`trialing` → `pro`, anything else (`past_due`, `canceled`,
+  `incomplete_expired`, `unpaid`, `paused`) → `free`. The rolling-window
+  rate-limiter (Wave 1) automatically applies once tier flips, so a user
+  whose card declines loses Pro on the very next save-proof.
+- **Soft revoke instead of hard delete** — `customer.subscription.deleted`
+  and `invoice.payment_failed` (after 3 attempts) now `UPDATE … SET
+  subscription_tier = 'free'` instead of `DELETE FROM api_keys`. The
+  `token_hash` survives, so a re-subscribe (`subscription.updated → active`)
+  flips the user back to Pro without forcing them to regenerate their
+  CI key.
+
+#### Phase B: Article 9 risk register population
+- **Curated AI risk catalog** — `pkg/compliance/vulns.json` (embedded via
+  `//go:embed`). Lower-cased keys for tensorflow, torch, pytorch,
+  transformers, langchain, openai, anthropic, huggingface_hub,
+  scikit-learn, diffusers. Each entry maps to OWASP ML Top 10 category,
+  MITRE ATLAS technique IDs, EU AI Act articles, severity, recommended
+  mitigation, and rationale. MVP scope per the original analysis ("even a
+  static JSON to start"); live CVE / GHSA / MITRE feeds queued for a
+  later wave.
+- **`pkg/compliance/risk_register.go`** — `ComputeRiskRegister(bom)` is a
+  pure function that walks `bom.Dependencies`, lower-cases each name,
+  looks it up in the catalog, and emits a `types.RiskRegister` with
+  per-finding rows + High/Medium/Low/Total summary counts.
+  `RenderRiskRegisterMarkdown` emits the table block for Annex IV § 5.
+- **Persistence** — `/api/save-proof` now JSON-marshals the register and
+  writes it into `proof_drills.risk_register_state` (the JSONB column
+  added in migration 00002 that had been empty for two years). The
+  Annex IV markdown surfaces the same findings via § 3(a)
+  "Cross-Referenced Risk Register (OWASP ML Top 10 / MITRE ATLAS)",
+  replacing the previous minimal "Automated Risk Register" block.
+- **Tests** — 5 unit tests in `pkg/compliance/risk_register_test.go`
+  (catalog match, case-insensitive lookup, unknown deps skipped, mixed
+  severities, markdown table shape) plus 2 new integration tests
+  (`TestSaveProof_PersistsRiskRegister`,
+  `TestSaveProof_AnnexIVContainsRiskRegister`).
+
+## Pending work (Wave 6 remainder)
+None for Phases A+B. Remaining open items from the reassessment Tier C+D
+(no `CHANGELOG.md`, EU hosting migration, Helm chart, public landing
+page, programmatic SEO, GitLab/Bitbucket CI integrations) are queued
+for Wave 7+ — they are quarter-scale projects, not commit-scale.
 
 ## Wave 3b/3c deployment checklist (run before merging to main)
 - [ ] RLS can stay as-is after Wave 3c — the frontend no longer reads `api_keys`
