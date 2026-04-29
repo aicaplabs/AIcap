@@ -776,7 +776,10 @@ func TestComplianceGenerateAnnexIVMarkdown_ContainsAllSections(t *testing.T) {
 		"Licensing Compliance Summary",
 		"Hardware Requirements",
 		"Risk Management",
-		"Automated Risk Register",
+		// Wave 6 renamed this section from "Automated Risk Register"
+		// to "Cross-Referenced Risk Register" — the new heading
+		// reflects the OWASP ML Top 10 / MITRE ATLAS cross-reference.
+		"Risk Register",
 		"Policy-as-Code Compliance",
 		"CI/CD Pipeline Controls",
 		"Human Oversight",

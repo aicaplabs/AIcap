@@ -21,6 +21,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -1009,6 +1010,105 @@ func TestStripeWebhook_SubscriptionUpdated_RestoresOnActive(t *testing.T) {
 	db.QueryRow(`SELECT subscription_tier FROM api_keys WHERE user_id = $1`, userID).Scan(&tier)
 	if tier != "pro" {
 		t.Errorf("tier after active = %q, want pro", tier)
+	}
+}
+
+// TestSaveProof_PersistsRiskRegister (Wave 6 Phase B): every save-proof
+// call must populate proof_drills.risk_register_state with the cross-
+// referenced register computed from the BOM. The column has existed
+// since migration 00002 but was never written to before this wave.
+func TestSaveProof_PersistsRiskRegister(t *testing.T) {
+	srv, db := setup(t)
+	userID := "00000000-0000-0000-0000-000000000400"
+	token := seedAPIKey(t, db, userID, "pro")
+
+	// BOM that hits two catalogued libraries: tensorflow (High) +
+	// openai (Medium) — covers both severity counters.
+	saveProof(t, srv, token, types.AIBOM{
+		ProjectName: "demo",
+		CommitSha:   "rr-1",
+		Dependencies: []types.AIDependency{
+			{Name: "tensorflow", Version: "2.15.0", Ecosystem: "Python (pip)"},
+			{Name: "openai", Version: "1.12.0", Ecosystem: "Python (pip)"},
+		},
+	})
+
+	var registerJSON []byte
+	if err := db.QueryRow(
+		`SELECT risk_register_state::text FROM proof_drills WHERE user_id = $1 AND commit_sha = $2`,
+		userID, "rr-1").Scan(&registerJSON); err != nil {
+		t.Fatalf("read register: %v", err)
+	}
+	if len(registerJSON) == 0 || string(registerJSON) == "null" {
+		t.Fatalf("risk_register_state is empty/null — Wave 6 persistence regressed")
+	}
+
+	var register map[string]any
+	if err := json.Unmarshal(registerJSON, &register); err != nil {
+		t.Fatalf("unmarshal: %v\nraw: %s", err, registerJSON)
+	}
+
+	summary, _ := register["summary"].(map[string]any)
+	if got := summary["total"]; got != float64(2) {
+		t.Errorf("summary.total = %v, want 2", got)
+	}
+	if got := summary["high"]; got != float64(1) {
+		t.Errorf("summary.high = %v, want 1 (tensorflow)", got)
+	}
+	if got := summary["medium"]; got != float64(1) {
+		t.Errorf("summary.medium = %v, want 1 (openai)", got)
+	}
+
+	findings, _ := register["findings"].([]any)
+	if len(findings) != 2 {
+		t.Fatalf("findings = %d, want 2", len(findings))
+	}
+	// Per-finding spot check: tensorflow entry must carry OWASP +
+	// EU AI Act articles, not just a severity.
+	for _, raw := range findings {
+		f, _ := raw.(map[string]any)
+		if f["component"] == "tensorflow" {
+			if owasp, _ := f["owaspCategory"].(string); owasp == "" {
+				t.Errorf("tensorflow finding missing owaspCategory: %v", f)
+			}
+			articles, _ := f["euAiActArticles"].([]any)
+			if len(articles) == 0 {
+				t.Errorf("tensorflow finding missing euAiActArticles: %v", f)
+			}
+		}
+	}
+}
+
+// TestSaveProof_AnnexIVContainsRiskRegister: the Annex IV markdown
+// stored alongside the proof must surface the register findings.
+// Auditors read the markdown — without this they don't see what
+// risks were known at scan time.
+func TestSaveProof_AnnexIVContainsRiskRegister(t *testing.T) {
+	srv, db := setup(t)
+	userID := "00000000-0000-0000-0000-000000000401"
+	token := seedAPIKey(t, db, userID, "pro")
+
+	saveProof(t, srv, token, types.AIBOM{
+		ProjectName: "demo",
+		CommitSha:   "rr-2",
+		Dependencies: []types.AIDependency{
+			{Name: "langchain", Version: "0.1.0", Ecosystem: "Python (pip)"},
+		},
+	})
+
+	var md string
+	db.QueryRow(
+		`SELECT annex_iv_markdown FROM proof_drills WHERE user_id = $1 AND commit_sha = $2`,
+		userID, "rr-2").Scan(&md)
+	for _, want := range []string{
+		"Cross-Referenced Risk Register",
+		"langchain",
+		"OWASP",
+		"Article 9",
+	} {
+		if !strings.Contains(md, want) {
+			t.Errorf("Annex IV markdown missing %q", want)
+		}
 	}
 }
 

@@ -212,6 +212,21 @@ func RegisterRoutes(mux *http.ServeMux, db *sql.DB, isCloudSaaS bool) {
 		if commitSha == "" {
 			commitSha = "local-dev-uncommitted"
 		}
+
+		// Wave 6: build the Article 9 risk register alongside the Annex IV
+		// markdown. The register is JSON-serialised into proof_drills.
+		// risk_register_state so dashboards can render it without re-
+		// parsing the markdown blob, and so the saved register is the
+		// canonical evidence of "what we knew at scan time" for auditors.
+		// GenerateAnnexIVMarkdown internally calls ComputeRiskRegister
+		// too — both are pure functions of the same BOM, so they stay
+		// consistent.
+		registerJSON, err := json.Marshal(compliance.ComputeRiskRegister(bom))
+		if err != nil {
+			httplog.From(r.Context()).Error("marshal risk register failed", slog.Any("error", err))
+			http.Error(w, "Internal server error", http.StatusInternalServerError)
+			return
+		}
 		annexIVMarkdown := compliance.GenerateAnnexIVMarkdown(bom)
 
 		// Use sql.NullString so that an empty userID (possible during a
@@ -321,9 +336,9 @@ func RegisterRoutes(mux *http.ServeMux, db *sql.DB, isCloudSaaS bool) {
 		cryptoHash := computeChainHash(commitSha, []byte(canonicalBOM), prevHash.String)
 
 		if _, err := tx.ExecContext(r.Context(), `
-			INSERT INTO proof_drills (project_id, user_id, commit_sha, ai_bom_json, annex_iv_markdown, crypto_hash, prev_hash)
-			VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-			projectID, nullableUserID, commitSha, bomJSON, annexIVMarkdown, cryptoHash,
+			INSERT INTO proof_drills (project_id, user_id, commit_sha, ai_bom_json, risk_register_state, annex_iv_markdown, crypto_hash, prev_hash)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+			projectID, nullableUserID, commitSha, bomJSON, registerJSON, annexIVMarkdown, cryptoHash,
 			sql.NullString{String: prevHash.String, Valid: prevHash.Valid},
 		); err != nil {
 			httplog.From(r.Context()).Error("insert proof_drill failed", slog.Any("error", err))

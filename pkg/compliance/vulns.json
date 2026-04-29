@@ -1,0 +1,86 @@
+{
+  "_meta": {
+    "schema_version": 1,
+    "comment": "Curated AI risk catalog used by compliance.ComputeRiskRegister to cross-reference detected dependencies against the OWASP ML Top 10 (2023), MITRE ATLAS techniques, and the relevant EU AI Act articles. Keys are matched case-insensitively against AIDependency.Name. This catalog is intentionally small and conservative — it is a static MVP per the 2026-04-26 reassessment and is meant to be extended as we ingest real CVE/GHSA/MITRE feeds in a later wave."
+  },
+  "tensorflow": {
+    "owasp_category": "ML06: AI Supply Chain Attacks",
+    "mitre_atlas": ["AML.T0010", "AML.T0011"],
+    "eu_ai_act_articles": ["Article 9", "Article 15"],
+    "severity": "High",
+    "mitigation": "Pin tensorflow to an audited version; verify model weight checksums; monitor TensorFlow security advisories at https://github.com/tensorflow/tensorflow/security/advisories.",
+    "rationale": "TensorFlow has a long history of CVEs in tensor parsing and saved-model deserialisation (CVE-2023-25668, CVE-2022-29216, etc.) that allow remote code execution when loading attacker-controlled models."
+  },
+  "torch": {
+    "owasp_category": "ML06: AI Supply Chain Attacks",
+    "mitre_atlas": ["AML.T0010"],
+    "eu_ai_act_articles": ["Article 9", "Article 15"],
+    "severity": "High",
+    "mitigation": "Use torch.load with weights_only=True (PyTorch >= 1.13); never torch.load() untrusted .pt files. Monitor PyTorch security advisories.",
+    "rationale": "torch.load() uses pickle internally — loading a malicious weight file executes arbitrary Python in your process."
+  },
+  "pytorch": {
+    "owasp_category": "ML06: AI Supply Chain Attacks",
+    "mitre_atlas": ["AML.T0010"],
+    "eu_ai_act_articles": ["Article 9", "Article 15"],
+    "severity": "High",
+    "mitigation": "Use torch.load with weights_only=True; never torch.load() untrusted .pt files.",
+    "rationale": "torch.load() uses pickle internally — loading a malicious weight file executes arbitrary Python."
+  },
+  "transformers": {
+    "owasp_category": "ML01: Input Manipulation Attack",
+    "mitre_atlas": ["AML.T0043", "AML.T0048"],
+    "eu_ai_act_articles": ["Article 9", "Article 13", "Article 15"],
+    "severity": "High",
+    "mitigation": "Validate and sanitise all text inputs; rate-limit model invocations; log prompts and responses for incident review; consider an LLM firewall (e.g. Lakera Guard, Rebuff).",
+    "rationale": "HuggingFace Transformers exposes generative models that are susceptible to prompt-injection and jailbreak attacks at the application boundary."
+  },
+  "langchain": {
+    "owasp_category": "ML01: Input Manipulation Attack",
+    "mitre_atlas": ["AML.T0043", "AML.T0051"],
+    "eu_ai_act_articles": ["Article 9", "Article 13", "Article 14"],
+    "severity": "High",
+    "mitigation": "Disable agents and tool-calling for untrusted inputs; enforce a strict allowlist of tools; require human-in-the-loop approval for destructive operations.",
+    "rationale": "LangChain agents that call external tools based on LLM output are a primary prompt-injection attack surface (CVE-2023-29374, CVE-2023-44467)."
+  },
+  "openai": {
+    "owasp_category": "ML09: Output Integrity Attack",
+    "mitre_atlas": ["AML.T0043", "AML.T0048"],
+    "eu_ai_act_articles": ["Article 13", "Article 14", "Article 15"],
+    "severity": "Medium",
+    "mitigation": "Treat LLM output as untrusted; validate structured outputs against a schema; never execute generated code without sandboxing; rotate API keys; enforce per-user rate limits.",
+    "rationale": "Direct calls to OpenAI's API expose the application to prompt-injection, output hallucination, and key-exfiltration risks if user input is concatenated into prompts without escaping."
+  },
+  "anthropic": {
+    "owasp_category": "ML09: Output Integrity Attack",
+    "mitre_atlas": ["AML.T0043", "AML.T0048"],
+    "eu_ai_act_articles": ["Article 13", "Article 14", "Article 15"],
+    "severity": "Medium",
+    "mitigation": "Treat LLM output as untrusted; validate structured outputs; sandbox any generated code; rotate API keys.",
+    "rationale": "Same prompt-injection / output-trust risks as any third-party LLM API."
+  },
+  "huggingface_hub": {
+    "owasp_category": "ML06: AI Supply Chain Attacks",
+    "mitre_atlas": ["AML.T0010", "AML.T0011"],
+    "eu_ai_act_articles": ["Article 9", "Article 10", "Article 15"],
+    "severity": "High",
+    "mitigation": "Pin model revisions by SHA, not by tag; verify gated-model licences before automated downloads; mirror critical models internally; scan downloaded weights for executable payloads.",
+    "rationale": "Hugging Face Hub hosts both vetted and arbitrary user-uploaded models; downloading by tag without revision pinning means a poisoned upload can silently replace a trusted model."
+  },
+  "scikit-learn": {
+    "owasp_category": "ML06: AI Supply Chain Attacks",
+    "mitre_atlas": ["AML.T0010"],
+    "eu_ai_act_articles": ["Article 9", "Article 15"],
+    "severity": "Medium",
+    "mitigation": "Avoid joblib.load() on untrusted .pkl files; prefer ONNX or skops.io.dump for serialisation; track upstream advisories.",
+    "rationale": "scikit-learn's recommended pickle/joblib serialisation deserialises arbitrary Python objects — loading attacker-controlled artefacts is RCE-equivalent."
+  },
+  "diffusers": {
+    "owasp_category": "ML06: AI Supply Chain Attacks",
+    "mitre_atlas": ["AML.T0010"],
+    "eu_ai_act_articles": ["Article 9", "Article 13", "Article 15"],
+    "severity": "Medium",
+    "mitigation": "Pin model revisions by SHA; use safe-tensor format; review NSFW filter status against intended deployment context.",
+    "rationale": "Stable Diffusion and related image-generation pipelines combine the supply-chain risks of huggingface_hub with content-safety obligations under Article 13 (transparency)."
+  }
+}
