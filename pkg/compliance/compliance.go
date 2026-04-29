@@ -161,13 +161,32 @@ func GenerateAnnexIVMarkdown(bom types.AIBOM) string {
 	} else {
 		sb.WriteString("- [ ] **BLOCKER:** High-risk AI dependencies detected without explicit mitigation.\n")
 	}
-	sb.WriteString("- [ ] `[REQUIRES MANUAL INPUT: Detail prompt injection mitigation strategy]`\n\n")
+	// 3(c) prompt-injection mitigation — Wave 7a auto-populates from
+	// detected guardrail libraries (lakera, rebuff, nemoguardrails, …).
+	// If none were found we keep the manual-input prompt; pretending we
+	// have a defence we can't see is exactly the kind of false-positive
+	// the original analysis warned against.
+	if defs := bom.Governance.PromptInjectionDefenses; len(defs) > 0 {
+		sb.WriteString(fmt.Sprintf("- [x] Prompt-injection defences detected: %s\n", joinEvidence(defs)))
+		for _, s := range defs {
+			sb.WriteString(fmt.Sprintf("  - %s _(source: %s, location: %s)_\n", s.Description, s.Source, s.Location))
+		}
+		sb.WriteString("\n")
+	} else {
+		sb.WriteString("- [ ] `[REQUIRES MANUAL INPUT: Detail prompt injection mitigation strategy]`\n\n")
+	}
 
-	// Section 4: Human Oversight
+	// Section 4: Human Oversight & Data Governance.
+	// Wave 7a fills in HITL, Training Data, and Bias Monitoring from
+	// scanner signals when available. Each subsection falls back to
+	// the original `[REQUIRES MANUAL INPUT]` placeholder when no
+	// signal was detected — auditors get evidence-or-prompt, never
+	// silent omission.
 	sb.WriteString("## 4. Human Oversight & Data Governance (Annex IV, Section 3)\n")
-	sb.WriteString("- **Human-in-the-loop (HITL) Controls:** `[REQUIRES MANUAL INPUT]`\n")
-	sb.WriteString("- **Training Data Provenance:** `[REQUIRES MANUAL INPUT]`\n")
-	sb.WriteString("- **Bias Monitoring:** `[REQUIRES MANUAL INPUT]`\n\n")
+	renderGovernanceSection(&sb, "Human-in-the-loop (HITL) Controls", bom.Governance.HITL)
+	renderGovernanceSection(&sb, "Training Data Provenance", bom.Governance.TrainingData)
+	renderGovernanceSection(&sb, "Bias Monitoring", bom.Governance.BiasMonitoring)
+	sb.WriteString("\n")
 
 	// Section 5: Proof Drill
 	sb.WriteString("## 5. Immutable Compliance Proof (AIcap Proof Drill)\n")
@@ -179,6 +198,35 @@ func GenerateAnnexIVMarkdown(bom types.AIBOM) string {
 	sb.WriteString("- **Cryptographic proof hash available in the AIcap Cloud dashboard.**\n")
 
 	return sb.String()
+}
+
+// renderGovernanceSection writes one Annex IV § 4 sub-bullet, either
+// with detected evidence or the `[REQUIRES MANUAL INPUT]` placeholder.
+// Pulled out of GenerateAnnexIVMarkdown so the three sub-sections (HITL,
+// Training Data, Bias Monitoring) share identical formatting — auditors
+// reading three different shapes is a needless cognitive load.
+func renderGovernanceSection(sb *strings.Builder, title string, signals []types.GovernanceSignal) {
+	if len(signals) == 0 {
+		sb.WriteString(fmt.Sprintf("- **%s:** `[REQUIRES MANUAL INPUT]`\n", title))
+		return
+	}
+	sb.WriteString(fmt.Sprintf("- **%s:** %d signal(s) detected — see evidence below.\n", title, len(signals)))
+	for _, s := range signals {
+		sb.WriteString(fmt.Sprintf("  - %s _(source: %s, location: `%s`)_\n", s.Description, s.Source, s.Location))
+	}
+}
+
+// joinEvidence collapses a slice of GovernanceSignal evidence strings
+// into a comma-separated list for the inline summary line at the top
+// of a § 3(c) entry. Deliberately simple — no de-duping, since multiple
+// detections of the same lib in different files are independently
+// useful audit signals.
+func joinEvidence(signals []types.GovernanceSignal) string {
+	parts := make([]string, 0, len(signals))
+	for _, s := range signals {
+		parts = append(parts, "`"+s.Evidence+"`")
+	}
+	return strings.Join(parts, ", ")
 }
 
 // CycloneDX SBOM structures — minimal CycloneDX 1.5 compatible output

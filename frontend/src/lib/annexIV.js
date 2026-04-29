@@ -10,10 +10,35 @@
 // without rendering, and so the same template lives in one place instead
 // of being duplicated across the two preview blocks in the old App.jsx.
 
+// renderGovernance is the per-section helper that mirrors the backend's
+// renderGovernanceSection (pkg/compliance/compliance.go). When the
+// scanner emitted signals for a section we list them; otherwise we
+// keep the original `[REQUIRES MANUAL INPUT]` placeholder so auditors
+// see "we looked, found nothing — please document manually" rather
+// than silent omission.
+function renderGovernance(title, signals) {
+  if (!signals || signals.length === 0) {
+    return `- **${title}:** \`[REQUIRES MANUAL INPUT]\``;
+  }
+  const lines = signals.map(
+    s => `  - ${s.description} _(source: ${s.source}, location: \`${s.location}\`)_`,
+  );
+  return `- **${title}:** ${signals.length} signal(s) detected — see evidence below.\n${lines.join('\n')}`;
+}
+
 export function buildAnnexIVMarkdown(scanData, historicalProof) {
   if (historicalProof) return historicalProof.markdown;
   const deps = scanData.dependencies || [];
   const finOps = scanData.finOps || [];
+  // Wave 7a: governance signals come from the backend's PerformScan when
+  // the scanData was sourced from /api/scan; the local-dev preview path
+  // gracefully degrades to placeholders if the field is absent.
+  const gov = scanData.governance || {};
+  const promptDefenses = gov.promptInjectionDefenses || [];
+  const promptDefenseLine = promptDefenses.length > 0
+    ? `- [x] Prompt-injection defences detected: ${promptDefenses.map(s => `\`${s.evidence}\``).join(', ')}`
+    : '- [ ] `[REQUIRES MANUAL INPUT: Detail prompt injection mitigation strategy]`';
+
   return `# EU AI Act - Annex IV Technical Documentation
 
 ## 1. General System Description (Annex IV, Section 1)
@@ -39,11 +64,12 @@ ${finOps.length > 0
 ${scanData.complianceStatus === 'Passed'
   ? '- [x] High-risk dependency constraints validated.'
   : '- [ ] **BLOCKER:** High-risk AI dependencies detected without explicit mitigation.'}
-- [ ] \`[REQUIRES MANUAL INPUT: Detail prompt injection mitigation strategy]\`
+${promptDefenseLine}
 
 ## 4. Human Oversight & Data Governance (Annex IV, Section 3)
-- **Human-in-the-loop (HITL) Controls:** \`[REQUIRES MANUAL INPUT]\`
-- **Training Data Provenance:** \`[REQUIRES MANUAL INPUT]\`
+${renderGovernance('Human-in-the-loop (HITL) Controls', gov.hitl)}
+${renderGovernance('Training Data Provenance', gov.trainingData)}
+${renderGovernance('Bias Monitoring', gov.biasMonitoring)}
 `;
 }
 

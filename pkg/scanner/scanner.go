@@ -101,6 +101,9 @@ func PerformScan(scanDir string) types.AIBOM {
 			if info.Name() == "requirements.txt" {
 				deps := parseRequirementsTxt(path)
 				bom.Dependencies = append(bom.Dependencies, deps...)
+				bias, defenses := detectGovernanceFromManifest(path)
+				bom.Governance.BiasMonitoring = append(bom.Governance.BiasMonitoring, bias...)
+				bom.Governance.PromptInjectionDefenses = append(bom.Governance.PromptInjectionDefenses, defenses...)
 			}
 			if info.Name() == "package.json" {
 				deps := parsePackageJson(path)
@@ -113,6 +116,9 @@ func PerformScan(scanDir string) types.AIBOM {
 			if info.Name() == "pyproject.toml" {
 				deps := parsePyProjectToml(path)
 				bom.Dependencies = append(bom.Dependencies, deps...)
+				bias, defenses := detectGovernanceFromManifest(path)
+				bom.Governance.BiasMonitoring = append(bom.Governance.BiasMonitoring, bias...)
+				bom.Governance.PromptInjectionDefenses = append(bom.Governance.PromptInjectionDefenses, defenses...)
 			}
 			if info.Name() == "Dockerfile" || strings.HasPrefix(info.Name(), "Dockerfile.") {
 				deps := parseDockerfile(path)
@@ -125,6 +131,10 @@ func PerformScan(scanDir string) types.AIBOM {
 			if strings.HasSuffix(info.Name(), ".py") {
 				deps := parsePythonSource(path)
 				bom.Dependencies = append(bom.Dependencies, deps...)
+				training, bias, defenses := detectGovernanceFromPython(path)
+				bom.Governance.TrainingData = append(bom.Governance.TrainingData, training...)
+				bom.Governance.BiasMonitoring = append(bom.Governance.BiasMonitoring, bias...)
+				bom.Governance.PromptInjectionDefenses = append(bom.Governance.PromptInjectionDefenses, defenses...)
 			}
 
 			// Scan .env files for leaked secrets
@@ -158,13 +168,26 @@ func PerformScan(scanDir string) types.AIBOM {
 					helmFinOps := parseHelmValues(path)
 					bom.FinOps = append(bom.FinOps, helmFinOps...)
 				}
+				// Wave 7a: HITL signals from k8s + Argo + GitHub Actions.
+				// detectGovernanceFromYAML covers k8s/Argo (regex-based,
+				// path-agnostic). detectGovernanceFromGitHubActions only
+				// fires for files under .github/workflows so we don't
+				// double-count environment: lines from unrelated YAML.
+				bom.Governance.HITL = append(bom.Governance.HITL, detectGovernanceFromYAML(path)...)
+				bom.Governance.HITL = append(bom.Governance.HITL, detectGovernanceFromGitHubActions(path)...)
 			}
 
-			// Terraform FinOps: parse .tf files for GPU instance types
+			// Terraform FinOps: parse .tf files for GPU instance types.
+			// Wave 7a: also pull training-data bucket signals from the
+			// same file so we don't open it twice.
 			if ext == ".tf" {
 				finops := parseTerraformFile(path)
 				bom.FinOps = append(bom.FinOps, finops...)
+				bom.Governance.TrainingData = append(bom.Governance.TrainingData, detectGovernanceFromTerraform(path)...)
 			}
+
+			// Wave 7a: DVC files are training-data versioning evidence.
+			bom.Governance.TrainingData = append(bom.Governance.TrainingData, detectGovernanceFromDVC(path)...)
 		}
 		return nil
 	})

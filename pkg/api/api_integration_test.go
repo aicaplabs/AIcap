@@ -1079,6 +1079,71 @@ func TestSaveProof_PersistsRiskRegister(t *testing.T) {
 	}
 }
 
+// TestSaveProof_AnnexIVContainsGovernance (Wave 7a): when the BOM
+// carries governance signals from the IaC scan, the saved Annex IV
+// markdown must surface them in § 3(c) (prompt-injection defences)
+// and § 4 (HITL, Training Data, Bias Monitoring) — and the
+// `[REQUIRES MANUAL INPUT]` placeholders for those four buckets must
+// NOT appear, since auditors should see evidence-OR-prompt, never both.
+func TestSaveProof_AnnexIVContainsGovernance(t *testing.T) {
+	srv, db := setup(t)
+	userID := "00000000-0000-0000-0000-000000000500"
+	token := seedAPIKey(t, db, userID, "pro")
+
+	bom := types.AIBOM{
+		ProjectName: "demo",
+		CommitSha:   "gov-1",
+		Governance: types.GovernanceTelemetry{
+			HITL: []types.GovernanceSignal{{
+				Source: "k8s manifest", Location: "deploy.yaml",
+				Evidence: "review-queue", Description: "HITL via k8s service.",
+			}},
+			TrainingData: []types.GovernanceSignal{{
+				Source: "dvc", Location: "data.dvc",
+				Evidence: "data.dvc", Description: "DVC training-data tracking.",
+			}},
+			BiasMonitoring: []types.GovernanceSignal{{
+				Source: "python import", Location: "guard.py",
+				Evidence: "fairlearn", Description: "Fairlearn imported.",
+			}},
+			PromptInjectionDefenses: []types.GovernanceSignal{{
+				Source: "python import", Location: "guard.py",
+				Evidence: "lakera", Description: "Lakera guardrail imported.",
+			}},
+		},
+	}
+	saveProof(t, srv, token, bom)
+
+	var md string
+	if err := db.QueryRow(
+		`SELECT annex_iv_markdown FROM proof_drills WHERE user_id = $1 AND commit_sha = $2`,
+		userID, "gov-1").Scan(&md); err != nil {
+		t.Fatalf("read annex iv: %v", err)
+	}
+
+	for _, want := range []string{
+		"HITL via k8s service.",
+		"DVC training-data tracking.",
+		"Fairlearn imported.",
+		"Prompt-injection defences detected",
+		"`lakera`",
+	} {
+		if !strings.Contains(md, want) {
+			t.Errorf("Annex IV missing governance evidence %q", want)
+		}
+	}
+	for _, banned := range []string{
+		"Human-in-the-loop (HITL) Controls:** `[REQUIRES MANUAL INPUT]`",
+		"Training Data Provenance:** `[REQUIRES MANUAL INPUT]`",
+		"Bias Monitoring:** `[REQUIRES MANUAL INPUT]`",
+		"[REQUIRES MANUAL INPUT: Detail prompt injection mitigation strategy]",
+	} {
+		if strings.Contains(md, banned) {
+			t.Errorf("Annex IV leaked placeholder %q despite signals being present", banned)
+		}
+	}
+}
+
 // TestSaveProof_AnnexIVContainsRiskRegister: the Annex IV markdown
 // stored alongside the proof must surface the register findings.
 // Auditors read the markdown — without this they don't see what
