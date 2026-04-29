@@ -229,15 +229,19 @@ func TestSaveProof_HappyPath(t *testing.T) {
 	}
 }
 
-// TestSaveProof_FreeTierQuota exercises the new rolling-window rate limit:
+// TestSaveProof_FreeTierQuota exercises the rolling-window rate limit:
 // the 10th scan in the last 30 days succeeds, the 11th returns 402.
+//
+// Each iteration uses a unique commit_sha so Wave 6's (user_id, commit_sha)
+// idempotency doesn't collapse them into a single logical save. Sending
+// the same commit 11 times is one entry in the ledger, not eleven.
 func TestSaveProof_FreeTierQuota(t *testing.T) {
 	srv, db := setup(t)
 	userID := "00000000-0000-0000-0000-000000000002"
 	token := seedAPIKey(t, db, userID, "free")
 
-	post := func() int {
-		b, _ := json.Marshal(types.AIBOM{ProjectName: "demo", CommitSha: "sha"})
+	post := func(commit string) int {
+		b, _ := json.Marshal(types.AIBOM{ProjectName: "demo", CommitSha: commit})
 		req, _ := http.NewRequest(http.MethodPost, srv.URL+"/api/save-proof", bytes.NewReader(b))
 		req.Header.Set("Authorization", "Bearer "+token)
 		req.Header.Set("Content-Type", "application/json")
@@ -249,11 +253,11 @@ func TestSaveProof_FreeTierQuota(t *testing.T) {
 		return resp.StatusCode
 	}
 	for i := 0; i < 10; i++ {
-		if got := post(); got != 201 {
+		if got := post(fmt.Sprintf("sha-%d", i)); got != 201 {
 			t.Fatalf("scan %d: status = %d, want 201", i+1, got)
 		}
 	}
-	if got := post(); got != http.StatusPaymentRequired {
+	if got := post("sha-overflow"); got != http.StatusPaymentRequired {
 		t.Errorf("scan 11: status = %d, want 402", got)
 	}
 }
@@ -670,9 +674,15 @@ func TestSaveProof_ChainsHashes(t *testing.T) {
 	userID := "00000000-0000-0000-0000-000000000100"
 	token := seedAPIKey(t, db, userID, "pro")
 
-	// Same BOM three times — only the chain link should differentiate the rows.
+	// Three distinct commits so Wave 6's idempotency doesn't collapse them.
+	// The chain property under test is: each new row's crypto_hash mixes in
+	// the previous row's, so even payload-identical BOMs produce different
+	// hashes — provided commit_sha differs.
 	for i := 0; i < 3; i++ {
-		saveProof(t, srv, token, types.AIBOM{ProjectName: "demo/repo", CommitSha: "sha-x"})
+		saveProof(t, srv, token, types.AIBOM{
+			ProjectName: "demo/repo",
+			CommitSha:   fmt.Sprintf("sha-%d", i),
+		})
 	}
 
 	rows, err := db.Query(`
@@ -811,5 +821,234 @@ func TestVerifyChain_PerUserChains(t *testing.T) {
 	bobResult := getVerifyChain(t, srv, mintJWT(t, bob, "bob@example.com"))
 	if ok, _ := bobResult["ok"].(bool); !ok {
 		t.Errorf("bob: ok = false despite untampered chain (got %v)", bobResult)
+	}
+}
+
+// --- Wave 6 Phase A: idempotency + Stripe lifecycle ----------------------
+//
+// These tests cover three pieces of correctness work landed together:
+//   1. /api/save-proof is idempotent by (user_id, commit_sha)
+//   2. customer.subscription.updated reflects Stripe status into the tier
+//   3. subscription.deleted / payment_failed soft-revoke (tier=free,
+//      token_hash preserved)
+
+// saveProofResp is like saveProof but returns the parsed body — Wave 6
+// added cryptoHash + idempotent fields the chain tests don't care about.
+func saveProofResp(t *testing.T, srv *httptest.Server, token string, bom types.AIBOM) (int, map[string]any) {
+	t.Helper()
+	b, _ := json.Marshal(bom)
+	req, _ := http.NewRequest(http.MethodPost, srv.URL+"/api/save-proof", bytes.NewReader(b))
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("save-proof: %v", err)
+	}
+	defer resp.Body.Close()
+	var body map[string]any
+	json.NewDecoder(resp.Body).Decode(&body)
+	return resp.StatusCode, body
+}
+
+// TestSaveProof_IdempotentRetry: a CI retry on the same (user_id,
+// commit_sha) returns 200 OK with the existing crypto_hash and creates
+// no new row. Without this guard, every retry would append a duplicate
+// audit entry with a different hash (BOM may differ slightly run-over-run).
+func TestSaveProof_IdempotentRetry(t *testing.T) {
+	srv, db := setup(t)
+	userID := "00000000-0000-0000-0000-000000000200"
+	token := seedAPIKey(t, db, userID, "pro")
+
+	bom := types.AIBOM{ProjectName: "demo/repo", CommitSha: "deadbeef"}
+	code1, body1 := saveProofResp(t, srv, token, bom)
+	if code1 != http.StatusCreated {
+		t.Fatalf("first save: status = %d, want 201", code1)
+	}
+	if got, _ := body1["idempotent"].(bool); got {
+		t.Errorf("first save: idempotent = true, want false")
+	}
+	hash1, _ := body1["cryptoHash"].(string)
+	if hash1 == "" {
+		t.Errorf("first save: missing cryptoHash in response")
+	}
+
+	// Second call: same payload, same commit_sha, same user. Must
+	// short-circuit and return the existing hash.
+	code2, body2 := saveProofResp(t, srv, token, bom)
+	if code2 != http.StatusOK {
+		t.Errorf("retry: status = %d, want 200 (idempotent)", code2)
+	}
+	if got, _ := body2["idempotent"].(bool); !got {
+		t.Errorf("retry: idempotent = false, want true")
+	}
+	hash2, _ := body2["cryptoHash"].(string)
+	if hash2 != hash1 {
+		t.Errorf("retry returned different hash: got %q, want %q", hash2, hash1)
+	}
+
+	// And the DB has exactly one row for (user, commit) — no append.
+	var rows int
+	if err := db.QueryRow(
+		`SELECT COUNT(*) FROM proof_drills WHERE user_id = $1 AND commit_sha = $2`,
+		userID, "deadbeef").Scan(&rows); err != nil {
+		t.Fatalf("count: %v", err)
+	}
+	if rows != 1 {
+		t.Errorf("proof_drills rows = %d, want 1 (idempotency leaked)", rows)
+	}
+}
+
+// TestSaveProof_DifferentCommitsAppend confirms that the idempotency
+// only triggers on commit_sha matches — different commits still append
+// and chain normally.
+func TestSaveProof_DifferentCommitsAppend(t *testing.T) {
+	srv, db := setup(t)
+	userID := "00000000-0000-0000-0000-000000000201"
+	token := seedAPIKey(t, db, userID, "pro")
+
+	saveProof(t, srv, token, types.AIBOM{ProjectName: "demo", CommitSha: "sha-1"})
+	saveProof(t, srv, token, types.AIBOM{ProjectName: "demo", CommitSha: "sha-2"})
+
+	var rows int
+	db.QueryRow(`SELECT COUNT(*) FROM proof_drills WHERE user_id = $1`, userID).Scan(&rows)
+	if rows != 2 {
+		t.Errorf("rows = %d, want 2 (idempotency over-fired on different commits)", rows)
+	}
+}
+
+// stripeWebhookEvent posts a signed Stripe event payload and returns
+// the response status. Helper because Wave 6 webhook tests reuse it.
+func stripeWebhookEvent(t *testing.T, srv *httptest.Server, secret string, payload []byte) int {
+	t.Helper()
+	signed := webhook.GenerateTestSignedPayload(&webhook.UnsignedPayload{
+		Payload: payload,
+		Secret:  secret,
+	})
+	req, _ := http.NewRequest(http.MethodPost, srv.URL+"/api/stripe-webhook", bytes.NewReader(payload))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Stripe-Signature", signed.Header)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("post webhook: %v", err)
+	}
+	resp.Body.Close()
+	return resp.StatusCode
+}
+
+// TestStripeWebhook_SubscriptionUpdated_DowngradesOnPastDue: when Stripe
+// flips a subscription to `past_due` (card declined, retry pending), the
+// user must lose Pro privileges immediately. Without this they keep Pro
+// for the full Stripe retry window (typically 3 weeks).
+func TestStripeWebhook_SubscriptionUpdated_DowngradesOnPastDue(t *testing.T) {
+	const secret = "whsec_integration_test"
+	t.Setenv("STRIPE_WEBHOOK_SECRET", secret)
+	srv, db := setup(t)
+
+	userID := "00000000-0000-0000-0000-000000000300"
+	cid := "cus_wave6_pastdue"
+	if _, err := db.Exec(
+		`INSERT INTO api_keys (user_id, stripe_customer_id, subscription_tier, token_hash)
+		 VALUES ($1, $2, 'pro', 'hash_pro_key')`, userID, cid); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	payload := []byte(fmt.Sprintf(`{
+		"id": "evt_sub_pastdue_1",
+		"object": "event",
+		"api_version": "2024-06-20",
+		"type": "customer.subscription.updated",
+		"data": {"object": {"id":"sub_1","object":"subscription","customer":%q,"status":"past_due"}}
+	}`, cid))
+	if code := stripeWebhookEvent(t, srv, secret, payload); code != http.StatusOK {
+		t.Fatalf("webhook status = %d, want 200", code)
+	}
+
+	var tier, tokenHash string
+	if err := db.QueryRow(
+		`SELECT subscription_tier, COALESCE(token_hash, '') FROM api_keys WHERE user_id = $1`,
+		userID).Scan(&tier, &tokenHash); err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	if tier != "free" {
+		t.Errorf("tier = %q, want free (past_due should downgrade)", tier)
+	}
+	// Soft-revoke contract: the row stays, the token_hash stays. If
+	// the user pays the bill, subscription.updated -> active flips them
+	// back without forcing a key rotate.
+	if tokenHash != "hash_pro_key" {
+		t.Errorf("token_hash = %q, want it preserved through downgrade", tokenHash)
+	}
+}
+
+// TestStripeWebhook_SubscriptionUpdated_RestoresOnActive: a previously-
+// downgraded user pays the bill, Stripe sends `active`, we flip back to
+// pro WITHOUT requiring them to regenerate their CI key.
+func TestStripeWebhook_SubscriptionUpdated_RestoresOnActive(t *testing.T) {
+	const secret = "whsec_integration_test"
+	t.Setenv("STRIPE_WEBHOOK_SECRET", secret)
+	srv, db := setup(t)
+
+	userID := "00000000-0000-0000-0000-000000000301"
+	cid := "cus_wave6_recover"
+	db.Exec(
+		`INSERT INTO api_keys (user_id, stripe_customer_id, subscription_tier, token_hash)
+		 VALUES ($1, $2, 'free', 'hash_dormant')`, userID, cid)
+
+	payload := []byte(fmt.Sprintf(`{
+		"id": "evt_sub_active_1",
+		"object": "event",
+		"api_version": "2024-06-20",
+		"type": "customer.subscription.updated",
+		"data": {"object": {"id":"sub_1","object":"subscription","customer":%q,"status":"active"}}
+	}`, cid))
+	if code := stripeWebhookEvent(t, srv, secret, payload); code != http.StatusOK {
+		t.Fatalf("status = %d", code)
+	}
+
+	var tier string
+	db.QueryRow(`SELECT subscription_tier FROM api_keys WHERE user_id = $1`, userID).Scan(&tier)
+	if tier != "pro" {
+		t.Errorf("tier after active = %q, want pro", tier)
+	}
+}
+
+// TestStripeWebhook_SubscriptionDeleted_SoftRevoke: Wave 6 changed the
+// behaviour from DELETE to UPDATE … SET tier='free'. The api_keys row
+// must survive so a re-subscribe doesn't force key rotation.
+func TestStripeWebhook_SubscriptionDeleted_SoftRevoke(t *testing.T) {
+	const secret = "whsec_integration_test"
+	t.Setenv("STRIPE_WEBHOOK_SECRET", secret)
+	srv, db := setup(t)
+
+	userID := "00000000-0000-0000-0000-000000000302"
+	cid := "cus_wave6_deleted"
+	db.Exec(
+		`INSERT INTO api_keys (user_id, stripe_customer_id, subscription_tier, token_hash)
+		 VALUES ($1, $2, 'pro', 'hash_will_survive')`, userID, cid)
+
+	payload := []byte(fmt.Sprintf(`{
+		"id": "evt_sub_del_1",
+		"object": "event",
+		"api_version": "2024-06-20",
+		"type": "customer.subscription.deleted",
+		"data": {"object": {"id":"sub_1","object":"subscription","customer":%q,"status":"canceled"}}
+	}`, cid))
+	if code := stripeWebhookEvent(t, srv, secret, payload); code != http.StatusOK {
+		t.Fatalf("status = %d", code)
+	}
+
+	var tier, tokenHash string
+	var rows int
+	db.QueryRow(`SELECT COUNT(*) FROM api_keys WHERE user_id = $1`, userID).Scan(&rows)
+	if rows != 1 {
+		t.Fatalf("rows = %d, want 1 (soft revoke must not delete the row)", rows)
+	}
+	db.QueryRow(`SELECT subscription_tier, token_hash FROM api_keys WHERE user_id = $1`, userID).
+		Scan(&tier, &tokenHash)
+	if tier != "free" {
+		t.Errorf("tier = %q, want free", tier)
+	}
+	if tokenHash != "hash_will_survive" {
+		t.Errorf("token_hash = %q, must be preserved through soft revoke", tokenHash)
 	}
 }
