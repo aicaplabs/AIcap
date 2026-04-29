@@ -253,6 +253,42 @@ func RegisterRoutes(mux *http.ServeMux, db *sql.DB, isCloudSaaS bool) {
 			}
 		}
 
+		// --- Idempotency short-circuit (Wave 6) ------------------------------
+		// A CI retry sends save-proof again with the same (user_id, commit_sha).
+		// Without this check we'd append a second row whose ai_bom may differ
+		// slightly (timestamps, file ordering) — duplicate audit entries with
+		// different crypto_hashes is exactly the corruption we want to avoid.
+		// Migration 00011 enforces uniqueness at the DB level as a backstop.
+		// Inside the advisory lock so concurrent retries can't both pass the
+		// check and race on the INSERT.
+		if userID != "" {
+			var existing string
+			err := tx.QueryRowContext(r.Context(),
+				`SELECT crypto_hash FROM proof_drills
+				 WHERE user_id = $1 AND commit_sha = $2`,
+				userID, commitSha).Scan(&existing)
+			if err == nil {
+				// Found — return the canonical hash without appending.
+				if err := tx.Commit(); err != nil {
+					httplog.From(r.Context()).Error("commit idempotent tx failed", slog.Any("error", err))
+				}
+				httplog.From(r.Context()).Info("save-proof idempotent retry",
+					slog.String("user_id", userID), slog.String("commit_sha", commitSha))
+				w.WriteHeader(http.StatusOK)
+				json.NewEncoder(w).Encode(map[string]any{
+					"status":     "success",
+					"cryptoHash": existing,
+					"idempotent": true,
+				})
+				return
+			}
+			if err != sql.ErrNoRows {
+				httplog.From(r.Context()).Error("idempotency check failed", slog.Any("error", err))
+				http.Error(w, "Internal server error", http.StatusInternalServerError)
+				return
+			}
+		}
+
 		var prevHash sql.NullString
 		if userID != "" {
 			err = tx.QueryRowContext(r.Context(), `
@@ -302,7 +338,11 @@ func RegisterRoutes(mux *http.ServeMux, db *sql.DB, isCloudSaaS bool) {
 		}
 
 		w.WriteHeader(http.StatusCreated)
-		json.NewEncoder(w).Encode(map[string]string{"status": "success"})
+		json.NewEncoder(w).Encode(map[string]any{
+			"status":     "success",
+			"cryptoHash": cryptoHash,
+			"idempotent": false,
+		})
 	}
 	if isCloudSaaS {
 		mux.HandleFunc("/api/save-proof", withCORS(auth.RequireAPIKey(db, saveProof)))
@@ -729,12 +769,23 @@ func RegisterRoutes(mux *http.ServeMux, db *sql.DB, isCloudSaaS bool) {
 				break
 			}
 			logger.Info("subscription deleted", slog.String("stripe_customer_id", cid))
-			result, err := db.Exec("DELETE FROM api_keys WHERE stripe_customer_id = $1", cid)
+			// Soft revoke (Wave 6): downgrade tier but keep the row + token_hash.
+			// If the customer re-subscribes their existing CI key still works
+			// once the next checkout.session.completed flips tier back to 'pro';
+			// hard-deleting forced an awkward rotate-after-resubscribe flow.
+			// The rate-limiter (rolling 30-day count, 10 free) automatically
+			// applies the moment tier flips back to 'free', so the user
+			// loses Pro privileges immediately.
+			result, err := db.Exec(
+				`UPDATE api_keys SET subscription_tier = 'free' WHERE stripe_customer_id = $1`,
+				cid)
 			if err != nil {
-				logger.Error("revoke API key", slog.String("stripe_customer_id", cid), slog.Any("error", err))
+				logger.Error("revoke (soft)", slog.String("stripe_customer_id", cid), slog.Any("error", err))
 			} else {
 				rows, _ := result.RowsAffected()
-				logger.Info("API keys revoked", slog.String("stripe_customer_id", cid), slog.Int64("count", rows))
+				logger.Info("API key downgraded to free",
+					slog.String("stripe_customer_id", cid),
+					slog.Int64("count", rows))
 			}
 
 		case "invoice.payment_failed":
@@ -749,8 +800,12 @@ func RegisterRoutes(mux *http.ServeMux, db *sql.DB, isCloudSaaS bool) {
 				slog.String("invoice_id", invoice.ID),
 				slog.Int64("attempt", invoice.AttemptCount))
 			if cid != "" && invoice.AttemptCount >= 3 {
-				logger.Warn("max retry attempts reached — revoking API key", slog.String("stripe_customer_id", cid))
-				db.Exec("DELETE FROM api_keys WHERE stripe_customer_id = $1", cid)
+				// Soft revoke (Wave 6): see customer.subscription.deleted comment.
+				logger.Warn("max retry attempts reached — downgrading to free",
+					slog.String("stripe_customer_id", cid))
+				db.Exec(
+					`UPDATE api_keys SET subscription_tier = 'free' WHERE stripe_customer_id = $1`,
+					cid)
 			}
 
 		case "customer.subscription.updated":
@@ -759,9 +814,38 @@ func RegisterRoutes(mux *http.ServeMux, db *sql.DB, isCloudSaaS bool) {
 				logger.Error("parse subscription update event", slog.Any("error", err))
 				break
 			}
+			cid := customerID(sub.Customer)
 			logger.Info("subscription updated",
-				slog.String("stripe_customer_id", customerID(sub.Customer)),
+				slog.String("stripe_customer_id", cid),
 				slog.String("status", string(sub.Status)))
+			// Wave 6: reflect Stripe's status into subscription_tier so users
+			// whose card declined or who are mid-cancellation lose Pro access
+			// without us needing a separate cron. Pro applies only while the
+			// subscription is `active` or `trialing`. Other terminal states
+			// (`past_due`, `canceled`, `incomplete_expired`, `unpaid`,
+			// `paused`) downgrade to free; the rate-limiter takes effect
+			// on the next save-proof.
+			if cid == "" {
+				break
+			}
+			tier := "free"
+			switch sub.Status {
+			case stripe.SubscriptionStatusActive, stripe.SubscriptionStatusTrialing:
+				tier = "pro"
+			}
+			if _, err := db.Exec(
+				`UPDATE api_keys SET subscription_tier = $1 WHERE stripe_customer_id = $2`,
+				tier, cid); err != nil {
+				logger.Error("reflect subscription status",
+					slog.String("stripe_customer_id", cid),
+					slog.String("status", string(sub.Status)),
+					slog.Any("error", err))
+			} else {
+				logger.Info("subscription tier updated from Stripe status",
+					slog.String("stripe_customer_id", cid),
+					slog.String("status", string(sub.Status)),
+					slog.String("tier", tier))
+			}
 
 		default:
 			logger.Info("unhandled event type")
