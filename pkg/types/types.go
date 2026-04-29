@@ -62,6 +62,42 @@ type ProofRecord struct {
 	Timestamp   string `json:"timestamp"`
 }
 
+// RiskFinding is one row of the Article 9 risk register: a detected
+// dependency cross-referenced against the curated catalog of OWASP ML
+// Top 10 categories, MITRE ATLAS techniques, and EU AI Act articles.
+// Persisted as JSONB inside RiskRegister; surfaced in Annex IV § 5.
+type RiskFinding struct {
+	Component       string   `json:"component"` // e.g. "tensorflow"
+	Version         string   `json:"version,omitempty"`
+	Ecosystem       string   `json:"ecosystem,omitempty"`
+	Severity        string   `json:"severity"` // High | Medium | Low
+	OwaspCategory   string   `json:"owaspCategory"`
+	MitreAtlas      []string `json:"mitreAtlas,omitempty"`
+	EUAIActArticles []string `json:"euAiActArticles"`
+	Mitigation      string   `json:"mitigation"`
+	Rationale       string   `json:"rationale,omitempty"`
+	Status          string   `json:"status"` // open | mitigated | accepted (default: open)
+}
+
+// RiskRegister is the Article 9 risk-management state for one
+// proof_drill. Stored verbatim in proof_drills.risk_register_state
+// (JSONB) so auditors can read it back per-commit.
+type RiskRegister struct {
+	GeneratedAt string        `json:"generatedAt"`
+	Findings    []RiskFinding `json:"findings"`
+	Summary     RiskSummary   `json:"summary"`
+}
+
+// RiskSummary holds counts by severity for the dashboard / Annex IV.
+// Computed alongside Findings so views can render a header without
+// re-walking the array.
+type RiskSummary struct {
+	High   int `json:"high"`
+	Medium int `json:"medium"`
+	Low    int `json:"low"`
+	Total  int `json:"total"`
+}
+
 // LicenseMapping links a local/hardcoded model to its registry or proprietary license
 type LicenseMapping struct {
 	HFID    string `json:"hf_id,omitempty"`

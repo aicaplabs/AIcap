@@ -88,30 +88,41 @@ func GenerateAnnexIVMarkdown(bom types.AIBOM) string {
 	sb.WriteString("## 3. Continuous Risk Management (Article 9 & Annex IV, Section 4)\n")
 	sb.WriteString(fmt.Sprintf("**Current Automated Posture:** %s\n\n", bom.Compliance))
 
-	// Auto-generated risk register
-	sb.WriteString("### 3(a) Automated Risk Register\n")
-	highRiskDeps := []types.AIDependency{}
+	// 3(a) Auto-generated risk register (Wave 6) — every detected dep
+	// cross-referenced against the curated catalog of OWASP ML Top 10
+	// categories, MITRE ATLAS techniques, and EU AI Act articles.
+	// Same data lives in proof_drills.risk_register_state (JSONB) so
+	// the dashboard / API can render the register without re-parsing
+	// markdown.
+	register := ComputeRiskRegister(bom)
+	sb.WriteString("### 3(a) Cross-Referenced Risk Register (OWASP ML Top 10 / MITRE ATLAS)\n\n")
+	sb.WriteString(fmt.Sprintf(
+		"**Findings:** %d total — High: %d, Medium: %d, Low: %d\n\n",
+		register.Summary.Total, register.Summary.High,
+		register.Summary.Medium, register.Summary.Low,
+	))
+	if rendered := RenderRiskRegisterMarkdown(register); rendered != "" {
+		sb.WriteString(rendered)
+		sb.WriteString("\n")
+		// Per-finding mitigation guidance — kept below the summary table
+		// because the table is what auditors scan first.
+		sb.WriteString("**Recommended mitigations:**\n\n")
+		for _, f := range register.Findings {
+			sb.WriteString(fmt.Sprintf("- **%s**: %s\n", f.Component, f.Mitigation))
+		}
+		sb.WriteString("\n")
+	} else {
+		sb.WriteString("No catalogued AI risks detected. (Catalog scope is intentionally MVP — see pkg/compliance/vulns.json.)\n\n")
+	}
+
+	// Exposed-secret findings stay separate because they're an immediate
+	// remediation requirement, not an Article 9 risk-management item.
 	secretFindings := []types.AIDependency{}
 	for _, dep := range bom.Dependencies {
-		if dep.RiskLevel == "High" && dep.Name != "Exposed Secret" {
-			highRiskDeps = append(highRiskDeps, dep)
-		}
 		if dep.Name == "Exposed Secret" {
 			secretFindings = append(secretFindings, dep)
 		}
 	}
-
-	if len(highRiskDeps) > 0 {
-		sb.WriteString("\n| Component | Risk | Location | Mitigation |\n")
-		sb.WriteString("|---|---|---|---|\n")
-		for _, dep := range highRiskDeps {
-			sb.WriteString(fmt.Sprintf("| %s (v%s) | %s | %s | `[REQUIRES INPUT]` |\n", dep.Name, dep.Version, dep.RiskLevel, dep.Location))
-		}
-		sb.WriteString("\n")
-	} else {
-		sb.WriteString("No high-risk AI components detected.\n\n")
-	}
-
 	if len(secretFindings) > 0 {
 		sb.WriteString(fmt.Sprintf("⚠️ **CRITICAL:** %d exposed secret(s) detected in source code. Immediate remediation required.\n\n", len(secretFindings)))
 	}
