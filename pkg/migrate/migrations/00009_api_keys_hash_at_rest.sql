@@ -28,12 +28,25 @@
 --    /api/generate-key has been called.
 ALTER TABLE api_keys ADD COLUMN IF NOT EXISTS token_hash TEXT;
 
--- 2. Backfill from the existing plaintext column. Idempotent: once the
---    token column is dropped this UPDATE is a no-op against empty-tabled
---    databases and a harmless re-run against already-hashed rows.
-UPDATE api_keys
-SET token_hash = encode(sha256(convert_to(token, 'UTF8')), 'hex')
-WHERE token_hash IS NULL AND token IS NOT NULL;
+-- 2. Backfill from the existing plaintext column. Guarded by a column-existence
+--    check so a re-run after `token` has been dropped is a safe no-op. The
+--    EXECUTE is required because PL/pgSQL parses the body at call time —
+--    a direct reference to `token` would fail at parse time if the column
+--    is already gone.
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_name = 'api_keys' AND column_name = 'token'
+  ) THEN
+    EXECUTE $exec$
+      UPDATE api_keys
+      SET token_hash = encode(sha256(convert_to(token, 'UTF8')), 'hex')
+      WHERE token_hash IS NULL AND token IS NOT NULL
+    $exec$;
+  END IF;
+END
+$$;
 
 -- 3. Index the hash so LookupAPIKey's lookup-by-hash is O(log n). Not UNIQUE
 --    because legitimate NULLs coexist (see header comment); the application
