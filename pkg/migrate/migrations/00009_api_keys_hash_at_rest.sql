@@ -56,4 +56,13 @@ END $$;
 -- 5. Drop the plaintext column. After this runs, no path can read a raw
 --    key back out of the database — the only time a raw key exists is in
 --    the HTTP response body of /api/generate-key or /api/rotate-key.
-ALTER TABLE api_keys DROP COLUMN IF EXISTS token;
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT FROM information_schema.columns 
+    WHERE table_name = 'api_keys' AND column_name = 'token'
+  ) THEN
+    ALTER TABLE api_keys DROP COLUMN token;
+  END IF;
+END
+$$;
