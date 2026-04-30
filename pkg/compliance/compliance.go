@@ -9,7 +9,19 @@ import (
 
 	"aicap/pkg/types"
 )
+// GenerateAnnexIVMarkdown is the convenience entry point used by
+// callers (e.g. the CLI) that don't have a pre-computed risk
+// register on hand. It just delegates to the with-register variant
+// after computing the catalog-only register internally.
 func GenerateAnnexIVMarkdown(bom types.AIBOM) string {
+	return GenerateAnnexIVMarkdownWithRegister(bom, ComputeRiskRegister(bom))
+}
+
+// GenerateAnnexIVMarkdownWithRegister renders Annex IV using a
+// caller-supplied register. /api/save-proof uses this so the
+// rendered markdown reflects the OSV-enriched register (Wave 7f),
+// not just the catalog-only one. Pure formatter — does no I/O.
+func GenerateAnnexIVMarkdownWithRegister(bom types.AIBOM, register types.RiskRegister) string {
 	var sb strings.Builder
 	sb.WriteString("# EU AI Act - Annex IV Technical Documentation\n\n")
 	sb.WriteString(fmt.Sprintf("*Generated: %s*\n\n", time.Now().UTC().Format(time.RFC3339)))
@@ -117,8 +129,8 @@ func GenerateAnnexIVMarkdown(bom types.AIBOM) string {
 	// categories, MITRE ATLAS techniques, and EU AI Act articles.
 	// Same data lives in proof_drills.risk_register_state (JSONB) so
 	// the dashboard / API can render the register without re-parsing
-	// markdown.
-	register := ComputeRiskRegister(bom)
+	// markdown. Wave 7f: caller passes in the register so live OSV
+	// vuln IDs (when enrichment ran) show up in the rendered table.
 	sb.WriteString("### 3(a) Cross-Referenced Risk Register (OWASP ML Top 10 / MITRE ATLAS)\n\n")
 	sb.WriteString(fmt.Sprintf(
 		"**Findings:** %d total — High: %d, Medium: %d, Low: %d\n\n",

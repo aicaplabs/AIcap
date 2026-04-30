@@ -145,6 +145,11 @@ type RiskFinding struct {
 	Mitigation      string   `json:"mitigation"`
 	Rationale       string   `json:"rationale,omitempty"`
 	Status          string   `json:"status"` // open | mitigated | accepted (default: open)
+	// LiveVulnIDs (Wave 7f) carries CVE / GHSA / PYSEC identifiers
+	// pulled live from OSV.dev for this dep + version. Empty when
+	// OSV is disabled or returned no matches; the static catalog
+	// fields above still apply.
+	LiveVulnIDs []string `json:"liveVulnIds,omitempty"`
 }
 
 // RiskRegister is the Article 9 risk-management state for one
