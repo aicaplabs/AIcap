@@ -19,6 +19,7 @@ import (
 	"aicap/pkg/types"
 
 	"github.com/stripe/stripe-go/v79"
+	billingportalsession "github.com/stripe/stripe-go/v79/billingportal/session"
 	"github.com/stripe/stripe-go/v79/checkout/session"
 	"github.com/stripe/stripe-go/v79/webhook"
 )
@@ -667,6 +668,92 @@ func RegisterRoutes(mux *http.ServeMux, db *sql.DB, isCloudSaaS bool) {
 		json.NewEncoder(w).Encode(map[string]string{"sessionId": checkoutSession.ID, "url": checkoutSession.URL})
 	}
 	mux.HandleFunc("/api/create-checkout-session", withCORS(auth.RequireSupabaseJWT(checkoutHandler)))
+
+	// --- Stripe customer portal (Wave 7e) -----------------------------------
+	// /api/customer-portal redirects an authenticated Pro user into Stripe's
+	// hosted billing portal so they can self-serve cancellations, payment-
+	// method updates, and invoice history. Without this, every billing
+	// change is a support ticket — and the analysis flagged it as the
+	// last meaningful Phase 7 gap.
+	//
+	// Contract:
+	//   * Reads stripe_customer_id from api_keys for the authenticated
+	//     userID. If the row has no Stripe customer (free tier, no
+	//     checkout completed), 400 — there's nothing to manage.
+	//   * Creates a fresh BillingPortal session per call. Stripe's
+	//     portal sessions are short-lived and single-use; we don't
+	//     cache them.
+	//   * Returns {url}. Frontend window.location.hrefs to it.
+	customerPortalHandler := func(w http.ResponseWriter, r *http.Request) {
+		cors(w, r)
+		w.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+		if r.Method == http.MethodOptions {
+			return
+		}
+		if r.Method != http.MethodPost {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		if !isCloudSaaS || db == nil {
+			http.Error(w, "SaaS features require cloud deployment and database connection", http.StatusInternalServerError)
+			return
+		}
+
+		userID := auth.UserID(r)
+		var customerID string
+		err := db.QueryRow(
+			`SELECT COALESCE(stripe_customer_id, '') FROM api_keys WHERE user_id = $1`,
+			userID,
+		).Scan(&customerID)
+		if err == sql.ErrNoRows || customerID == "" {
+			// Free-tier users (or Pro users where the webhook hasn't
+			// fired yet) have no Stripe customer to manage. The frontend
+			// should hide the button in this state, but the API guards
+			// it too in case the UI gets out of sync.
+			http.Error(w, "No Stripe customer associated with this account. Subscribe to Pro first.", http.StatusBadRequest)
+			return
+		}
+		if err != nil {
+			httplog.From(r.Context()).Error("read stripe_customer_id failed",
+				slog.String("user_id", userID), slog.Any("error", err))
+			http.Error(w, "Internal server error", http.StatusInternalServerError)
+			return
+		}
+
+		stripe.Key = os.Getenv("STRIPE_SECRET_KEY")
+		if stripe.Key == "" {
+			httplog.From(r.Context()).Error("STRIPE_SECRET_KEY not set")
+			http.Error(w, "Stripe secret key not configured", http.StatusInternalServerError)
+			return
+		}
+
+		// Default the return-URL to the frontend root. Stripe sends the
+		// user back here after they finish in the portal; if the
+		// VITE_FRONTEND_URL allowlist is comma-separated, we use the
+		// first entry just like /api/create-checkout-session does.
+		frontendURL := os.Getenv("VITE_FRONTEND_URL")
+		if frontendURL == "" {
+			frontendURL = "http://localhost:5173"
+		} else if idx := strings.Index(frontendURL, ","); idx >= 0 {
+			frontendURL = strings.TrimSpace(frontendURL[:idx])
+		}
+
+		params := &stripe.BillingPortalSessionParams{
+			Customer:  stripe.String(customerID),
+			ReturnURL: stripe.String(frontendURL + "/"),
+		}
+		portalSession, err := billingportalsession.New(params)
+		if err != nil {
+			httplog.From(r.Context()).Error("creating Stripe billing portal session",
+				slog.String("user_id", userID), slog.Any("error", err))
+			http.Error(w, "Unable to open billing portal. Please try again.", http.StatusBadGateway)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]string{"url": portalSession.URL})
+	}
+	mux.HandleFunc("/api/customer-portal", withCORS(auth.RequireSupabaseJWT(customerPortalHandler)))
 
 	// --- Stripe webhook -----------------------------------------------------
 	// The webhook itself is authenticated by Stripe's signature, not by us.
