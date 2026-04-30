@@ -795,6 +795,73 @@ func TestComplianceGenerateAnnexIVMarkdown_ContainsAllSections(t *testing.T) {
 	}
 }
 
+// Wave 7b: when a FinOps finding carries an EstimatedCost, Annex IV
+// § 2(c) must render the dollar figure inline AND a BOM-level summary
+// line. When no findings carry a cost, the legacy listing format
+// renders without the cost line — auditors see the GPU warning but
+// no fictional dollar figure.
+func TestAnnexIV_FinOpsCost_Rendered(t *testing.T) {
+	bom := types.AIBOM{
+		ProjectName: "x",
+		FinOps: []types.FinOpsFinding{{
+			Resource: "infra.tf",
+			Severity: "Warning",
+			Description: "AWS instance detected.",
+			EstimatedCost: &types.FinOpsCost{
+				InstanceFamily: "p4d.",
+				Cloud:          "AWS",
+				HourlyUSDLow:   32.77,
+				HourlyUSDHigh:  32.77,
+				MonthlyUSDLow:  23922.10,
+				MonthlyUSDHigh: 23922.10,
+				Description:    "NVIDIA A100 40GB GPU (p4d.24xlarge)",
+			},
+		}},
+		FinOpsCostEstimate: &types.FinOpsCostSummary{
+			TotalMonthlyUSDLow:   23922.10,
+			TotalMonthlyUSDHigh:  23922.10,
+			Currency:             "USD",
+			AssumedHoursPerMonth: 730,
+			Disclaimer:           "Estimates assume 730 hours/month at on-demand list pricing.",
+			CostedFindings:       1,
+			UncostedFindings:     0,
+		},
+	}
+	md := compliance.GenerateAnnexIVMarkdown(bom)
+
+	for _, want := range []string{
+		"Estimated cost:",
+		"$32.77",
+		"$23922", // formatted as $%.0f, no decimal
+		"AWS family `p4d.`",
+		"Estimated total monthly cost:",
+		"1 costed finding(s)",
+		"Assumptions:",
+	} {
+		if !strings.Contains(md, want) {
+			t.Errorf("§ 2(c) cost rendering missing %q\nfull md:\n%s", want, md)
+		}
+	}
+}
+
+// Wave 7b: a FinOps finding without EstimatedCost (typical for k8s
+// nvidia.com/gpu requests with no instance-type hint) must NOT emit
+// the cost line — we only show dollars we can justify.
+func TestAnnexIV_FinOpsCost_OmittedWhenNotEstimated(t *testing.T) {
+	bom := types.AIBOM{
+		ProjectName: "x",
+		FinOps: []types.FinOpsFinding{{
+			Resource:    "deploy.yaml",
+			Severity:    "Warning",
+			Description: "Expensive GPU requested without MIG.",
+		}},
+	}
+	md := compliance.GenerateAnnexIVMarkdown(bom)
+	if strings.Contains(md, "Estimated cost:") {
+		t.Errorf("Annex IV emitted Estimated cost line for an uncostable finding\n%s", md)
+	}
+}
+
 // Wave 7a: when bom.Governance is empty (legacy scans, or projects with
 // no detectable IaC governance signals) the Annex IV § 4 sub-sections
 // must keep the original `[REQUIRES MANUAL INPUT]` placeholders so

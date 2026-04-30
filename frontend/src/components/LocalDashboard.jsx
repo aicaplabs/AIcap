@@ -117,7 +117,7 @@ export default function LocalDashboard({
       {/* Right Column: AI-BOM, FinOps, Annex preview, audit ledger */}
       <div className="lg:col-span-2">
         <BomTable scanData={scanData} />
-        <FinOpsTable finOps={scanData.finOps} />
+        <FinOpsTable finOps={scanData.finOps} costEstimate={scanData.finOpsCostEstimate} />
 
         {(markdownGenerated || historicalProof) && (
           <div className="mt-6">
@@ -295,7 +295,21 @@ function BomTable({ scanData }) {
   );
 }
 
-function FinOpsTable({ finOps }) {
+// formatCostRange turns a {monthlyUsdLow, monthlyUsdHigh} pair into the
+// "$1,200–$3,400 /mo" string that fits the table cell. Pulled out so a
+// future cell that wants the same format (e.g. a future hourly column)
+// can reuse the same `Intl.NumberFormat` instance.
+const usdFormatter = new Intl.NumberFormat('en-US', {
+  style: 'currency', currency: 'USD', maximumFractionDigits: 0,
+});
+function formatCostRange(cost) {
+  if (!cost) return null;
+  const lo = usdFormatter.format(cost.monthlyUsdLow);
+  const hi = usdFormatter.format(cost.monthlyUsdHigh);
+  return lo === hi ? `${lo} /mo` : `${lo}–${hi} /mo`;
+}
+
+function FinOpsTable({ finOps, costEstimate }) {
   if (!finOps || finOps.length === 0) return null;
   return (
     <div className="mt-6 bg-white rounded-xl shadow-sm border border-amber-200 overflow-hidden">
@@ -304,6 +318,26 @@ function FinOpsTable({ finOps }) {
           <DollarSign className="w-5 h-5 text-amber-600" />
           AI FinOps & Cloud Cost Warnings
         </h2>
+        {/* Wave 7b: BOM-level cost summary on the right of the header.
+           Hidden when the scan emitted no costed findings — the table
+           still renders so users see the warnings, but we don't show a
+           misleading $0 estimate. */}
+        {costEstimate && costEstimate.costedFindings > 0 && (
+          <div className="text-right">
+            <div className="text-xs text-amber-600 uppercase tracking-wider font-semibold">
+              Est. monthly cost
+            </div>
+            <div className="text-lg font-bold text-amber-800">
+              {usdFormatter.format(costEstimate.totalMonthlyUsdLow)}
+              {' – '}
+              {usdFormatter.format(costEstimate.totalMonthlyUsdHigh)}
+            </div>
+            <div className="text-[10px] text-amber-600 max-w-xs">
+              {costEstimate.costedFindings} costed
+              {costEstimate.uncostedFindings > 0 && ` · ${costEstimate.uncostedFindings} no catalog match`}
+            </div>
+          </div>
+        )}
       </div>
       <div className="overflow-x-auto">
         <table className="w-full text-left border-collapse">
@@ -311,6 +345,7 @@ function FinOpsTable({ finOps }) {
             <tr className="bg-amber-50/50 text-amber-700 text-xs uppercase tracking-wider border-b border-amber-100">
               <th className="p-4 font-semibold">Manifest / Resource</th>
               <th className="p-4 font-semibold">Finding</th>
+              <th className="p-4 font-semibold">Est. $/mo</th>
               <th className="p-4 font-semibold">Location</th>
             </tr>
           </thead>
@@ -322,12 +357,21 @@ function FinOpsTable({ finOps }) {
                   <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
                   {f.description}
                 </td>
+                <td className="p-4 text-slate-700 text-sm font-mono whitespace-nowrap">
+                  {formatCostRange(f.estimatedCost) || <span className="text-slate-400">—</span>}
+                </td>
                 <td className="p-4 text-slate-500 text-sm font-mono">{f.location}</td>
               </tr>
             ))}
           </tbody>
         </table>
       </div>
+      {costEstimate && (
+        <div className="px-6 py-3 border-t border-amber-100 bg-amber-50/30 text-xs text-amber-700">
+          <span className="font-semibold">Assumptions:</span> {costEstimate.assumedHoursPerMonth} hours/month, on-demand list pricing.
+          Actual cost depends on instance size, region, and spot/savings-plan/reserved discounts.
+        </div>
+      )}
     </div>
   );
 }

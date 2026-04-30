@@ -1,0 +1,142 @@
+package finops
+
+import (
+	"math"
+	"strings"
+	"testing"
+
+	"aicap/pkg/types"
+)
+
+// nearlyEqual is the float-safe comparator the cost tests use because
+// 32.77 * 730 in Go isn't bit-identical to what `32.77 * 730.0` reads
+// as on the call site (last-bit rounding). 0.01 tolerance is way
+// inside what auditors would care about ($0.01 noise on a $24k figure).
+func nearlyEqual(a, b float64) bool { return math.Abs(a-b) < 0.01 }
+
+// LookupGPUCost contract: returns a populated FinOpsCost when the
+// content contains a known instance-family prefix; nil otherwise.
+// Hourly→monthly conversion uses AssumedHoursPerMonth (730 by default).
+
+func TestLookupGPUCost_AWS_p4d(t *testing.T) {
+	got := LookupGPUCost(`resource "aws_instance" "trainer" { instance_type = "p4d.24xlarge" }`)
+	if got == nil {
+		t.Fatal("LookupGPUCost = nil, want non-nil match for p4d")
+	}
+	if got.Cloud != "AWS" {
+		t.Errorf("Cloud = %q, want AWS", got.Cloud)
+	}
+	if got.InstanceFamily != "p4d." {
+		t.Errorf("InstanceFamily = %q, want p4d.", got.InstanceFamily)
+	}
+	// Catalog point estimate for p4d.24xlarge is $32.77/hr — the
+	// monthly figure should be 32.77 * 730 = 23,922.10.
+	wantMonthly := 32.77 * 730.0
+	if !nearlyEqual(got.MonthlyUSDLow, wantMonthly) {
+		t.Errorf("MonthlyUSDLow = %.2f, want %.2f", got.MonthlyUSDLow, wantMonthly)
+	}
+	if !nearlyEqual(got.MonthlyUSDHigh, wantMonthly) {
+		t.Errorf("MonthlyUSDHigh = %.2f, want %.2f", got.MonthlyUSDHigh, wantMonthly)
+	}
+}
+
+func TestLookupGPUCost_AWS_g5_Range(t *testing.T) {
+	// g5 covers g5.xlarge ($1.01) through g5.48xlarge ($16.29) — must
+	// surface as a range, not a point estimate.
+	got := LookupGPUCost(`instance_type = "g5.2xlarge"`)
+	if got == nil {
+		t.Fatal("nil for g5")
+	}
+	if got.HourlyUSDLow == got.HourlyUSDHigh {
+		t.Errorf("g5 should be a range, got point %v", got.HourlyUSDLow)
+	}
+}
+
+func TestLookupGPUCost_GCP_a3_highgpu(t *testing.T) {
+	got := LookupGPUCost("machine_type = a3-highgpu-8g")
+	if got == nil {
+		t.Fatal("nil for a3-highgpu")
+	}
+	if got.Cloud != "GCP" {
+		t.Errorf("Cloud = %q, want GCP", got.Cloud)
+	}
+}
+
+func TestLookupGPUCost_Azure_StandardND(t *testing.T) {
+	// Azure prefixes are lower-cased in the catalog; case-insensitive
+	// match must still fire on a real Terraform `Standard_ND96asr_v4`.
+	got := LookupGPUCost(strings.ToLower(`vm_size = "Standard_ND96asr_v4"`))
+	if got == nil {
+		t.Fatal("nil for Standard_ND")
+	}
+	if got.Cloud != "Azure" {
+		t.Errorf("Cloud = %q, want Azure", got.Cloud)
+	}
+}
+
+func TestLookupGPUCost_NoMatch(t *testing.T) {
+	if got := LookupGPUCost("instance_type = t3.micro"); got != nil {
+		t.Errorf("non-nil for unrelated instance type: %#v", got)
+	}
+}
+
+func TestAssumedHoursPerMonth_DefaultsTo730(t *testing.T) {
+	if AssumedHoursPerMonth() != 730 {
+		t.Errorf("AssumedHoursPerMonth = %d, want 730", AssumedHoursPerMonth())
+	}
+}
+
+// EstimateBOMCost contract: aggregates monthly low/high across costed
+// findings; counts uncosted findings separately so auditors know the
+// headline figure is missing detections.
+
+func TestEstimateBOMCost_AggregatesMonthly(t *testing.T) {
+	bom := types.AIBOM{FinOps: []types.FinOpsFinding{
+		{Resource: "tf1", EstimatedCost: &types.FinOpsCost{MonthlyUSDLow: 100, MonthlyUSDHigh: 200}},
+		{Resource: "tf2", EstimatedCost: &types.FinOpsCost{MonthlyUSDLow: 50, MonthlyUSDHigh: 50}},
+		{Resource: "k8s-no-instance"}, // EstimatedCost == nil
+	}}
+	est := EstimateBOMCost(bom)
+	if est == nil {
+		t.Fatal("EstimateBOMCost = nil")
+	}
+	if est.TotalMonthlyUSDLow != 150 {
+		t.Errorf("Low = %v, want 150", est.TotalMonthlyUSDLow)
+	}
+	if est.TotalMonthlyUSDHigh != 250 {
+		t.Errorf("High = %v, want 250", est.TotalMonthlyUSDHigh)
+	}
+	if est.CostedFindings != 2 || est.UncostedFindings != 1 {
+		t.Errorf("Costed/Uncosted = %d/%d, want 2/1", est.CostedFindings, est.UncostedFindings)
+	}
+	if est.Currency != "USD" {
+		t.Errorf("Currency = %q, want USD", est.Currency)
+	}
+}
+
+func TestEstimateBOMCost_NoFindingsReturnsNil(t *testing.T) {
+	if got := EstimateBOMCost(types.AIBOM{}); got != nil {
+		t.Errorf("expected nil for BOM with no FinOps findings, got %#v", got)
+	}
+}
+
+func TestEstimateBOMCost_AllUncosted_StillReturnsSummary(t *testing.T) {
+	// When every finding lacks a cost (typical for k8s-only projects)
+	// we still return a populated summary — it just has zero monthly
+	// cost and a positive UncostedFindings count. That way the
+	// disclaimer block always renders and auditors see the assumptions.
+	bom := types.AIBOM{FinOps: []types.FinOpsFinding{{Resource: "deploy.yaml"}}}
+	est := EstimateBOMCost(bom)
+	if est == nil {
+		t.Fatal("nil for all-uncosted BOM")
+	}
+	if est.CostedFindings != 0 {
+		t.Errorf("CostedFindings = %d, want 0", est.CostedFindings)
+	}
+	if est.UncostedFindings != 1 {
+		t.Errorf("UncostedFindings = %d, want 1", est.UncostedFindings)
+	}
+	if est.Disclaimer == "" {
+		t.Error("Disclaimer is empty even on uncosted summary")
+	}
+}

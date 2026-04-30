@@ -1079,6 +1079,62 @@ func TestSaveProof_PersistsRiskRegister(t *testing.T) {
 	}
 }
 
+// TestSaveProof_AnnexIVContainsCostEstimate (Wave 7b): when the BOM
+// carries a populated FinOpsCostEstimate, the saved Annex IV markdown
+// must surface the per-finding cost line + the BOM-level total + the
+// assumptions block. Auditors should never see the dollar figure
+// without the disclaimer that disclosed the assumptions.
+func TestSaveProof_AnnexIVContainsCostEstimate(t *testing.T) {
+	srv, db := setup(t)
+	userID := "00000000-0000-0000-0000-000000000600"
+	token := seedAPIKey(t, db, userID, "pro")
+
+	bom := types.AIBOM{
+		ProjectName: "demo",
+		CommitSha:   "cost-1",
+		FinOps: []types.FinOpsFinding{{
+			Resource: "infra.tf", Severity: "Warning",
+			Description: "AWS instance detected.",
+			EstimatedCost: &types.FinOpsCost{
+				InstanceFamily: "p4d.", Cloud: "AWS",
+				HourlyUSDLow: 32.77, HourlyUSDHigh: 32.77,
+				MonthlyUSDLow: 23922.10, MonthlyUSDHigh: 23922.10,
+				Description: "NVIDIA A100 40GB GPU (p4d.24xlarge)",
+			},
+		}},
+		FinOpsCostEstimate: &types.FinOpsCostSummary{
+			TotalMonthlyUSDLow:   23922.10,
+			TotalMonthlyUSDHigh:  23922.10,
+			Currency:             "USD",
+			AssumedHoursPerMonth: 730,
+			Disclaimer:           "Estimates assume 730 hours/month at on-demand list pricing.",
+			CostedFindings:       1,
+			UncostedFindings:     0,
+		},
+	}
+	saveProof(t, srv, token, bom)
+
+	var md string
+	if err := db.QueryRow(
+		`SELECT annex_iv_markdown FROM proof_drills WHERE user_id = $1 AND commit_sha = $2`,
+		userID, "cost-1").Scan(&md); err != nil {
+		t.Fatalf("read annex iv: %v", err)
+	}
+	for _, want := range []string{
+		"Estimated cost:",
+		"$32.77",
+		"AWS family `p4d.`",
+		"Estimated total monthly cost:",
+		"1 costed finding(s)",
+		"Assumptions:",
+		"730 hours/month",
+	} {
+		if !strings.Contains(md, want) {
+			t.Errorf("Annex IV missing FinOps cost line %q", want)
+		}
+	}
+}
+
 // TestSaveProof_AnnexIVContainsGovernance (Wave 7a): when the BOM
 // carries governance signals from the IaC scan, the saved Annex IV
 // markdown must surface them in § 3(c) (prompt-injection defences)
