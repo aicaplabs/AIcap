@@ -9,6 +9,17 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 Trial of new features lands on `development` first. Once a stable
 batch is ready, it is merged to `main` and tagged.
 
+### Added (since 0.7.0)
+- **Stripe customer portal** (Wave 7e) — `POST /api/customer-portal`
+  + frontend "Manage subscription" button. Pro users self-serve
+  cancellations, payment-method updates, and invoice history.
+- **Live OSV.dev CVE/GHSA enrichment** (Wave 7f) — `pkg/compliance/osv.go`
+  cross-references every catalog-matched dep against `api.osv.dev/v1/query`
+  with timeout + 5-worker concurrency. Annex IV § 3(a) gains a "Live
+  CVE/GHSA" column. Curated catalog stays primary; OSV failures fall
+  back to catalog-only findings deterministically. Configurable via
+  `AICAP_OSV_DISABLED` / `AICAP_OSV_URL` / `AICAP_OSV_TIMEOUT_MS`.
+
 ## [0.7.0] — 2026-04-30 — Compliance intelligence + FinOps cost + multi-manifest
 
 The 2026-Q2 hardening sequence converted AIcap from a working prototype
@@ -142,15 +153,15 @@ works end-to-end.
 - Free tier: 10 scans / 30-day rolling window.
 
 ### Maturity (vs original blueprint analysis)
-| Phase | Original | 0.7.0 | Δ |
+| Phase | Original | 0.7.0 + Unreleased | Δ |
 |---|---|---|---|
 | Phase 1 (Stack) | 80% | 95% | +15 |
 | Phase 2 (Scanning) | 50% | 92% | +42 |
-| Phase 3 (Compliance) | 35% | 88% | +53 |
-| Phase 4 (CI/CD) | 70% | 95% | +25 |
+| Phase 3 (Compliance) | 35% | 95% | +60 |
+| Phase 4 (CI/CD) | 70% | 98% | +28 |
 | Phase 5 (Sovereignty) | 10% | 10% | +0 (deferred) |
 | Phase 6 (FinOps) | 25% | 75% | +50 |
-| Phase 7 (Pricing) | 35% | 90% | +55 |
+| Phase 7 (Pricing) | 35% | 95% | +60 |
 | Phase 8 (GTM) | 15% | 15% | +0 (deferred) |
 | **Overall MVP readiness** | **40%** | **~85%** | **+45** |
 

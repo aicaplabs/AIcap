@@ -404,10 +404,102 @@ catalog and attaches concrete dollar figures to FinOps findings.
   saved Annex IV markdown carries the dollar figure + disclaimer.
 
 ## Pending work (Wave 7b remainder)
-None for Phase 6. Tier C+D items remain (no `CHANGELOG.md`, EU
-hosting migration, Helm chart, public landing page, programmatic
-SEO, GitLab/Bitbucket CI integrations) for Wave 7c+ — these are
-quarter-scale projects, not commit-scale.
+None.
+
+### Wave 7c (shipped — additional manifest parsers)
+
+The original analysis flagged that AIcap only handled `requirements.txt`
+and `package.json`. Wave 7c fills in the remaining lockfile / alternative-
+manifest formats so projects using Poetry-locked, Pipenv-locked,
+pnpm/yarn-locked, or Conda-managed deps still get a full AI-BOM:
+
+- `poetry.lock` — TOML, `[[package]]` blocks (Poetry resolved tree)
+- `Pipfile.lock` — JSON, `default` + `develop` sections (Pipenv)
+- `pnpm-lock.yaml` — YAML, `packages:` map keyed by `/name@version`
+- `yarn.lock` — custom format, `"name@range":` headers + `version "..."` rows
+- `environment.yml` (and `environment.yaml`) — Conda dependencies + pip
+  sub-block
+
+All five live in `pkg/scanner/manifests.go` alongside a small
+`emitIfAI` helper. Simple line/regex scanning rather than full
+TOML/YAML parsers — zero new dependencies, lockfile shapes are stable.
+The lockfiles are the authoritative version source: `pyproject.toml`
+/ `Pipfile` / `package.json` carry version *ranges*, but the lockfile
+tells us what actually got installed. 7 unit tests cover one
+happy-path per parser plus a Conda section-toggle regression and a
+PerformScan integration.
+
+### Wave 7d (shipped — CHANGELOG.md)
+`CHANGELOG.md` lands at the repo root with a Keep-a-Changelog
+formatted entry covering every wave from 1 through 7c. Includes the
+full maturity-table diff vs the original blueprint analysis and notes
+that Phase 5 / 8 are deliberately deferred. The unreleased section
+explains the development → main flow so a future merge can drop the
+section header into a `v0.7.0` tag.
+
+### Wave 7e (shipped — Stripe customer portal)
+
+Pro users had to file a support ticket to update payment methods, view
+invoices, or cancel — every billing change went through us. Wave 7e
+adds a Stripe BillingPortal session endpoint and a frontend
+"Manage subscription" button.
+
+- `POST /api/customer-portal` — Supabase JWT-gated. Reads
+  `stripe_customer_id` from `api_keys` for the authenticated user.
+  Returns 400 when there's no Stripe customer (free-tier path) so the
+  API guards the UI state. Otherwise creates a fresh BillingPortal
+  session and returns `{url}` for the frontend to navigate to. Each
+  call creates a new session — Stripe portal sessions are short-lived
+  and single-use.
+- `frontend/src/components/ManageSubscriptionButton.jsx` — POSTs the
+  endpoint via `apiFetch` (so the 401 refresh-and-retry contract
+  applies) and redirects same-tab on success.
+- 3 new integration tests: requires-stripe-customer (400),
+  unauthed-rejected (401), CORS-preflight (Wave 1 regression guard).
+
+### Wave 7f (shipped — live OSV.dev CVE/GHSA enrichment)
+
+The Wave 6 risk register fed exclusively from `pkg/compliance/vulns.json`
+— accurate for OWASP / MITRE / Article mappings but lagging real-world
+CVE / GHSA disclosures. Wave 7f cross-references each detected dep
+against [OSV.dev](https://osv.dev) and attaches live vulnerability IDs
+to the existing findings.
+
+- `pkg/compliance/osv.go` — `OSVClient` (HTTP wrapper around
+  `api.osv.dev/v1/query` with configurable timeout + base URL),
+  `mapEcosystem` (translates per-parser labels to OSV identifiers
+  PyPI / npm / Go), and `EnrichWithOSV` (5-worker concurrent fan-out,
+  attaches `LiveVulnIDs` to matching findings).
+- Env-var configuration: `AICAP_OSV_DISABLED=true` skips entirely,
+  `AICAP_OSV_URL` overrides the base URL (used by tests to point at
+  `httptest.NewServer`), `AICAP_OSV_TIMEOUT_MS` overrides the per-call
+  timeout (default 1500ms).
+- `types.RiskFinding.LiveVulnIDs []string` (omitempty so legacy proof
+  drills don't carry phantom empty arrays).
+- `compliance.GenerateAnnexIVMarkdownWithRegister(bom, register)` —
+  pure formatter that takes a pre-computed register so the rendered
+  markdown reflects OSV enrichment. The legacy
+  `GenerateAnnexIVMarkdown(bom)` delegates to it.
+- `/api/save-proof` flow: `ComputeRiskRegister(bom)` →
+  `NewOSVClient()` (nil if disabled) → `EnrichWithOSV` (5s timeout)
+  → `GenerateAnnexIVMarkdownWithRegister(bom, register)` → persist.
+- Annex IV § 3(a) table grows a "Live CVE/GHSA" column rendering IDs
+  as inline code spans (or "—" when absent).
+- 10 new unit tests with `httptest.NewServer` covering happy path,
+  timeout, disabled mode, non-200 response, ecosystem-label mapping,
+  attach-to-matching-finding, no-match no-op, nil-client no-op, error
+  fallback, markdown column rendering.
+
+Failure mode (deliberate): if OSV is unreachable / slow / rate-limiting,
+the catalog-derived finding still lands — we just lose the LiveVulnIDs
+decoration. Compliance reporting stays deterministic in CI even when a
+third-party API is having a bad day.
+
+## Pending work (Wave 7c–7f remainder)
+None. Phase 5 (sovereignty / EU hosting / Helm) and Phase 8 (GTM /
+landing page / SEO) remain as deliberately-deferred Tier D work
+per the user's direction; they are quarter-scale projects, not
+commit-scale.
 
 ## Wave 3b/3c deployment checklist (run before merging to main)
 - [ ] RLS can stay as-is after Wave 3c — the frontend no longer reads `api_keys`
