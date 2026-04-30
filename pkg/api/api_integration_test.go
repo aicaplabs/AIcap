@@ -1079,6 +1079,71 @@ func TestSaveProof_PersistsRiskRegister(t *testing.T) {
 	}
 }
 
+// --- Wave 7e: Stripe customer portal ------------------------------------
+
+// TestCustomerPortal_RequiresStripeCustomer: a free-tier user with no
+// stripe_customer_id should get 400, not a 500 or a phantom portal
+// session. The frontend hides the button in this state, but the API
+// still guards in case the UI is out of sync.
+func TestCustomerPortal_RequiresStripeCustomer(t *testing.T) {
+	srv, db := setup(t)
+	userID := "00000000-0000-0000-0000-000000000700"
+	// Seed an api_keys row WITHOUT stripe_customer_id (free tier path).
+	if _, err := db.Exec(
+		`INSERT INTO api_keys (user_id, subscription_tier, token_hash) VALUES ($1, 'free', 'free_hash')`,
+		userID); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	jwt := mintJWT(t, userID, "free@example.com")
+	req, _ := http.NewRequest(http.MethodPost, srv.URL+"/api/customer-portal", nil)
+	req.Header.Set("Authorization", "Bearer "+jwt)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("post: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("status = %d, want 400 (no stripe customer)", resp.StatusCode)
+	}
+}
+
+// TestCustomerPortal_UnauthedRejected: no JWT → 401. Belt-and-braces
+// confirmation that RequireSupabaseJWT covers the route.
+func TestCustomerPortal_UnauthedRejected(t *testing.T) {
+	srv, _ := setup(t)
+	resp, err := http.Post(srv.URL+"/api/customer-portal", "application/json", nil)
+	if err != nil {
+		t.Fatalf("post: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Errorf("status = %d, want 401", resp.StatusCode)
+	}
+}
+
+// TestCustomerPortal_CORSPreflight: OPTIONS must pass through unauth'd
+// (Wave 1 regression). Without this, browsers can't reach the endpoint
+// cross-origin.
+func TestCustomerPortal_CORSPreflight(t *testing.T) {
+	srv, _ := setup(t)
+	req, _ := http.NewRequest(http.MethodOptions, srv.URL+"/api/customer-portal", nil)
+	req.Header.Set("Origin", "https://app.example.com")
+	req.Header.Set("Access-Control-Request-Method", "POST")
+	req.Header.Set("Access-Control-Request-Headers", "authorization,content-type")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("preflight: %v", err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode == http.StatusUnauthorized {
+		t.Error("preflight returned 401 — CORS will break for /api/customer-portal")
+	}
+	if got := resp.Header.Get("Access-Control-Allow-Origin"); got == "" {
+		t.Error("preflight missing Access-Control-Allow-Origin")
+	}
+}
+
 // TestSaveProof_AnnexIVContainsCostEstimate (Wave 7b): when the BOM
 // carries a populated FinOpsCostEstimate, the saved Annex IV markdown
 // must surface the per-finding cost line + the BOM-level total + the

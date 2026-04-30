@@ -3,6 +3,7 @@ import React from 'react';
 import KeyVault from './KeyVault.jsx';
 import HistoryTable from './HistoryTable.jsx';
 import AnnexIVPreview from './AnnexIVPreview.jsx';
+import ManageSubscriptionButton from './ManageSubscriptionButton.jsx';
 
 // Composition layer for the cloud-SaaS Pro view: welcome banner with
 // CI snippet, KeyVault, audit ledger, optional historical Annex IV
@@ -23,9 +24,14 @@ export default function ProDashboard({
       {/* Welcome banner + CI snippet + KeyVault */}
       <div className="bg-indigo-600 p-8 rounded-xl shadow-sm text-white flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
         <div className="max-w-2xl">
-          <h2 className="text-2xl font-bold mb-2">
-            Welcome back, {session.user.email.split('@')[0]}
-          </h2>
+          <div className="flex items-start justify-between gap-4 mb-2">
+            <h2 className="text-2xl font-bold">
+              Welcome back, {session.user.email.split('@')[0]}
+            </h2>
+            {/* Wave 7e: Stripe customer portal — self-serve cancel,
+               payment-method update, invoice history. */}
+            <ManageSubscriptionButton onTokenRefresh={onTokenRefresh} />
+          </div>
           <p className="text-indigo-100 text-sm">
             To maintain EU AI Act compliance without exposing your proprietary source code, the AIcap scanner runs natively inside your own CI/CD infrastructure. Connect your repository using your secret API key.
           </p>
