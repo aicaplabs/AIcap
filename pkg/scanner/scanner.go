@@ -121,6 +121,39 @@ func PerformScan(scanDir string) types.AIBOM {
 				bom.Governance.BiasMonitoring = append(bom.Governance.BiasMonitoring, bias...)
 				bom.Governance.PromptInjectionDefenses = append(bom.Governance.PromptInjectionDefenses, defenses...)
 			}
+			// Wave 7c — additional Python dep manifests.
+			// poetry.lock and Pipfile.lock are the resolved trees that
+			// Poetry / Pipenv emit; they're authoritative for the actual
+			// versions a deploy will install, more so than pyproject.toml
+			// or Pipfile (which carry version ranges).
+			if info.Name() == "poetry.lock" {
+				deps := parsePoetryLock(path)
+				bom.Dependencies = append(bom.Dependencies, deps...)
+			}
+			if info.Name() == "Pipfile.lock" {
+				deps := parsePipfileLock(path)
+				bom.Dependencies = append(bom.Dependencies, deps...)
+			}
+			// Wave 7c — pnpm + yarn lockfiles. Same role for the JS
+			// ecosystem as the Python lockfiles above. package.json
+			// alone shows version *ranges*; the lockfiles tell us the
+			// resolved version that actually got installed.
+			if info.Name() == "pnpm-lock.yaml" {
+				deps := parsePnpmLock(path)
+				bom.Dependencies = append(bom.Dependencies, deps...)
+			}
+			if info.Name() == "yarn.lock" {
+				deps := parseYarnLock(path)
+				bom.Dependencies = append(bom.Dependencies, deps...)
+			}
+			// Wave 7c — Conda environment.yml. Common in ML research
+			// codebases; we only catch the explicit version-pinned
+			// entries (numpy=1.26.0) and the pip sub-list — looser
+			// constraints aren't useful for an SBOM.
+			if info.Name() == "environment.yml" || info.Name() == "environment.yaml" {
+				deps := parseCondaEnv(path)
+				bom.Dependencies = append(bom.Dependencies, deps...)
+			}
 			if info.Name() == "Dockerfile" || strings.HasPrefix(info.Name(), "Dockerfile.") {
 				deps := parseDockerfile(path)
 				bom.Dependencies = append(bom.Dependencies, deps...)
