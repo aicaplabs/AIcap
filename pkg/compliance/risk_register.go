@@ -128,19 +128,27 @@ func ComputeRiskRegister(bom types.AIBOM) types.RiskRegister {
 // Returned string is empty if there are no findings — the Annex IV
 // builder writes a "no findings" line in that case so auditors can
 // distinguish "scanner ran but caught nothing" from "scanner never ran".
+//
+// Wave 7f: each row's last column now lists live OSV-sourced
+// CVE / GHSA IDs when present, so auditors see both the static
+// catalog mapping and the live vulnerability surface in one table.
 func RenderRiskRegisterMarkdown(reg types.RiskRegister) string {
 	if len(reg.Findings) == 0 {
 		return ""
 	}
 	var sb strings.Builder
-	sb.WriteString("| Component | Severity | OWASP ML Top 10 | MITRE ATLAS | AI Act | Status |\n")
-	sb.WriteString("|---|---|---|---|---|---|\n")
+	sb.WriteString("| Component | Severity | OWASP ML Top 10 | MITRE ATLAS | AI Act | Status | Live CVE/GHSA |\n")
+	sb.WriteString("|---|---|---|---|---|---|---|\n")
 	for _, f := range reg.Findings {
 		atlas := strings.Join(f.MitreAtlas, ", ")
 		if atlas == "" {
 			atlas = "—"
 		}
 		articles := strings.Join(f.EUAIActArticles, ", ")
+		liveIDs := "—"
+		if len(f.LiveVulnIDs) > 0 {
+			liveIDs = "`" + strings.Join(f.LiveVulnIDs, "`, `") + "`"
+		}
 		sb.WriteString("| `")
 		sb.WriteString(f.Component)
 		sb.WriteString("`")
@@ -158,6 +166,8 @@ func RenderRiskRegisterMarkdown(reg types.RiskRegister) string {
 		sb.WriteString(articles)
 		sb.WriteString(" | ")
 		sb.WriteString(f.Status)
+		sb.WriteString(" | ")
+		sb.WriteString(liveIDs)
 		sb.WriteString(" |\n")
 	}
 	return sb.String()

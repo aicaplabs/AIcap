@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"crypto/rand"
 	"crypto/sha256"
 	"database/sql"
@@ -11,6 +12,7 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"time"
 
 	"aicap/pkg/auth"
 	"aicap/pkg/compliance"
@@ -219,16 +221,28 @@ func RegisterRoutes(mux *http.ServeMux, db *sql.DB, isCloudSaaS bool) {
 		// risk_register_state so dashboards can render it without re-
 		// parsing the markdown blob, and so the saved register is the
 		// canonical evidence of "what we knew at scan time" for auditors.
-		// GenerateAnnexIVMarkdown internally calls ComputeRiskRegister
-		// too — both are pure functions of the same BOM, so they stay
-		// consistent.
-		registerJSON, err := json.Marshal(compliance.ComputeRiskRegister(bom))
+		//
+		// Wave 7f: enrich the register with live OSV.dev CVE/GHSA data
+		// before persisting. We bound the call with a hard timeout
+		// derived from the request context so a slow OSV doesn't block
+		// the whole save-proof flow — when the budget runs out, the
+		// findings still land, just without the LiveVulnIDs decoration.
+		// We also re-render Annex IV from a BOM whose dependencies have
+		// been updated with the enriched register so the markdown table
+		// surfaces the same CVE list that the JSONB carries.
+		register := compliance.ComputeRiskRegister(bom)
+		if osvClient := compliance.NewOSVClient(); osvClient != nil {
+			ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+			compliance.EnrichWithOSV(ctx, &register, bom, osvClient)
+			cancel()
+		}
+		registerJSON, err := json.Marshal(register)
 		if err != nil {
 			httplog.From(r.Context()).Error("marshal risk register failed", slog.Any("error", err))
 			http.Error(w, "Internal server error", http.StatusInternalServerError)
 			return
 		}
-		annexIVMarkdown := compliance.GenerateAnnexIVMarkdown(bom)
+		annexIVMarkdown := compliance.GenerateAnnexIVMarkdownWithRegister(bom, register)
 
 		// Use sql.NullString so that an empty userID (possible during a
 		// schema-migration race where the middleware ran on old code) is stored
