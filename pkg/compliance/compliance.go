@@ -72,14 +72,38 @@ func GenerateAnnexIVMarkdown(bom types.AIBOM) string {
 	sb.WriteString("\n")
 
 	// 2(c): Hardware & Infrastructure
-	sb.WriteString("### 2(c) Hardware Requirements & Deployment (FinOps Telemetry)\n")
+	sb.WriteString("### 2(c) Hardware Requirements & Estimated Monthly Cost (FinOps Telemetry)\n")
 	if len(bom.FinOps) == 0 {
 		sb.WriteString("No specific hardware constraints or GPU requests detected in infrastructure manifests.\n\n")
 	} else {
+		// Wave 7b: each finding now optionally carries an EstimatedCost
+		// from the curated catalog (pkg/finops/gpu_costs.json). Render
+		// it inline so auditors see the dollar figure per resource;
+		// the summary block below aggregates the total range.
 		for _, fin := range bom.FinOps {
 			sb.WriteString(fmt.Sprintf("- **Resource:** %s\n", fin.Resource))
 			sb.WriteString(fmt.Sprintf("  - **Finding:** %s\n", fin.Description))
 			sb.WriteString(fmt.Sprintf("  - **Severity:** %s\n", fin.Severity))
+			if fin.EstimatedCost != nil {
+				sb.WriteString(fmt.Sprintf(
+					"  - **Estimated cost:** $%.2f–$%.2f /hr → **$%.0f–$%.0f /month** (%s family `%s`)\n",
+					fin.EstimatedCost.HourlyUSDLow, fin.EstimatedCost.HourlyUSDHigh,
+					fin.EstimatedCost.MonthlyUSDLow, fin.EstimatedCost.MonthlyUSDHigh,
+					fin.EstimatedCost.Cloud, fin.EstimatedCost.InstanceFamily,
+				))
+			}
+		}
+		// BOM-level summary surfaces the aggregate, which is what the
+		// FinOps user actually budgets against. Costed-vs-uncosted
+		// counters tell auditors when the headline figure is missing
+		// detections.
+		if est := bom.FinOpsCostEstimate; est != nil && (est.CostedFindings > 0 || est.UncostedFindings > 0) {
+			sb.WriteString(fmt.Sprintf("\n**Estimated total monthly cost:** $%.0f–$%.0f %s "+
+				"(across %d costed finding(s); %d additional finding(s) had no catalog match).\n",
+				est.TotalMonthlyUSDLow, est.TotalMonthlyUSDHigh, est.Currency,
+				est.CostedFindings, est.UncostedFindings))
+			sb.WriteString(fmt.Sprintf("_Assumptions: %d hours/month. %s_\n",
+				est.AssumedHoursPerMonth, est.Disclaimer))
 		}
 		sb.WriteString("\n")
 	}

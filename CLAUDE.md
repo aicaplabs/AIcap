@@ -339,10 +339,75 @@ concrete signals.
   end-to-end.
 
 ## Pending work (Wave 7a remainder)
-None. Tier C+D items remain (no `CHANGELOG.md`, EU hosting migration,
-Helm chart, public landing page, programmatic SEO, GitLab/Bitbucket
-CI integrations) for Wave 7b+ — these are quarter-scale projects,
-not commit-scale.
+None.
+
+### Wave 7b (shipped — Phase 6 GPU cost estimation)
+
+The 2026-04-29 reassessment kept Phase 6 at 40% because the scanner
+could spot GPU-bearing infrastructure but couldn't tell the user what
+it would cost. Wave 7b lifts the per-instance-family hourly-rate data
+out of the inline maps in `pkg/scanner/scanner.go` into a structured
+catalog and attaches concrete dollar figures to FinOps findings.
+
+- **`pkg/finops/`** — new package, mirrors the
+  `pkg/compliance/risk_register.go` pattern.
+  - `gpu_costs.json` — curated catalog (AWS p3/p4d/p4de/p5/g4dn/g5/
+    g5g/g6/inf1/inf2/trn1, Azure NC/ND/NV, GCP a2-highgpu/a2-megagpu/
+    a3-highgpu/g2-standard) embedded via `//go:embed`. Each entry
+    carries hourly USD low/high (for families that span multiple
+    sizes), description, and the global assumed-hours-per-month
+    constant + curated disclaimer.
+  - `LookupGPUCost(content)` — first-match prefix lookup, returns a
+    `types.FinOpsCost` with hourly + monthly USD ranges. Nil when
+    nothing matches (typical for k8s nvidia.com/gpu requests with no
+    instance-type hint).
+  - `EstimateBOMCost(bom)` — aggregates per-finding costs into a
+    BOM-level `FinOpsCostSummary` (TotalMonthlyUSDLow/High, Currency,
+    AssumedHoursPerMonth, Disclaimer, CostedFindings,
+    UncostedFindings).
+
+- **`types.FinOpsFinding`** — new optional `EstimatedCost *FinOpsCost`
+  field. **`types.AIBOM`** — new optional `FinOpsCostEstimate
+  *FinOpsCostSummary` field. Both omitempty so legacy proof drills
+  re-rendered through the new code don't carry phantom zero figures.
+
+- **`pkg/scanner/scanner.go`** — `parseTerraformFile` now delegates
+  cost lookup to `pkg/finops` and attaches `FinOpsCost` to the
+  emitted finding. The big inline AWS/Azure/GCP instance maps are
+  gone (DRY against the catalog). `PerformScan` calls
+  `finops.EstimateBOMCost(bom)` after the walk so every BOM ships
+  with a populated summary when there's at least one finding.
+
+- **Annex IV § 2(c)** — renamed to "Hardware Requirements & Estimated
+  Monthly Cost (FinOps Telemetry)". Per-finding bullets now include
+  an "Estimated cost: $X.XX–$Y.YY /hr → $A–$B /month (Cloud family
+  `prefix`)" line when available. A BOM-level total + assumptions
+  block ("Estimated total monthly cost: $A–$B USD across N costed
+  finding(s); M additional finding(s) had no catalog match") closes
+  the section.
+
+- **Frontend `LocalDashboard.jsx` FinOpsTable** — added "Est. $/mo"
+  column with `Intl.NumberFormat` USD formatting; header right-side
+  shows the BOM-level total when present; assumptions footer renders
+  inside the table.
+
+- **Frontend `lib/annexIV.js`** — mirrors backend rendering via a
+  new `renderFinOpsBlock(finOps, est)` helper.
+
+- **Tests** — 8 unit tests in `pkg/finops/cost_test.go` (catalog
+  lookup positive/negative cases per cloud, range vs. point pricing,
+  BOM aggregation with mixed costed/uncosted findings, all-uncosted
+  edge case). 2 new unit tests in `pkg/scanner/scanner_test.go`
+  (Annex IV cost line rendered when present, omitted when not). 1
+  integration test (`TestSaveProof_AnnexIVContainsCostEstimate`)
+  asserts the cost data round-trips through save-proof and the
+  saved Annex IV markdown carries the dollar figure + disclaimer.
+
+## Pending work (Wave 7b remainder)
+None for Phase 6. Tier C+D items remain (no `CHANGELOG.md`, EU
+hosting migration, Helm chart, public landing page, programmatic
+SEO, GitLab/Bitbucket CI integrations) for Wave 7c+ — these are
+quarter-scale projects, not commit-scale.
 
 ## Wave 3b/3c deployment checklist (run before merging to main)
 - [ ] RLS can stay as-is after Wave 3c — the frontend no longer reads `api_keys`

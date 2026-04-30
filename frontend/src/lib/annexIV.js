@@ -10,6 +10,25 @@
 // without rendering, and so the same template lives in one place instead
 // of being duplicated across the two preview blocks in the old App.jsx.
 
+// renderFinOpsBlock mirrors the backend's § 2(c) FinOps rendering:
+// per-finding lines with optional cost detail, plus a BOM-level
+// summary line + assumptions. Pulled out of the template literal so
+// the formatting logic stays readable.
+function renderFinOpsBlock(finOps, est) {
+  const lines = finOps.map(f => {
+    const base = `- **Resource:** ${f.resource}\n  - **Finding:** ${f.description}`;
+    const c = f.estimatedCost;
+    if (!c) return base;
+    return base + `\n  - **Estimated cost:** $${c.hourlyUsdLow.toFixed(2)}–$${c.hourlyUsdHigh.toFixed(2)} /hr → **$${Math.round(c.monthlyUsdLow)}–$${Math.round(c.monthlyUsdHigh)} /month** (${c.cloud} family \`${c.instanceFamily}\`)`;
+  });
+  if (est && (est.costedFindings > 0 || est.uncostedFindings > 0)) {
+    lines.push('');
+    lines.push(`**Estimated total monthly cost:** $${Math.round(est.totalMonthlyUsdLow)}–$${Math.round(est.totalMonthlyUsdHigh)} ${est.currency} (across ${est.costedFindings} costed finding(s); ${est.uncostedFindings} additional finding(s) had no catalog match).`);
+    lines.push(`_Assumptions: ${est.assumedHoursPerMonth} hours/month. ${est.disclaimer}_`);
+  }
+  return lines.join('\n');
+}
+
 // renderGovernance is the per-section helper that mirrors the backend's
 // renderGovernanceSection (pkg/compliance/compliance.go). When the
 // scanner emitted signals for a section we list them; otherwise we
@@ -52,9 +71,9 @@ ${deps.length > 0
   ? deps.map(d => `- **${d.name}** (v${d.version})${d.license ? ` [License: ${d.license}]` : ''}: ${d.description} (Risk: ${d.riskLevel})`).join('\n')
   : 'No AI dependencies detected.'}
 
-### 2(c) Hardware Requirements & Deployment (FinOps Telemetry)
+### 2(c) Hardware Requirements & Estimated Monthly Cost (FinOps Telemetry)
 ${finOps.length > 0
-  ? finOps.map(f => `- **Resource:** ${f.resource}\n  - **Finding:** ${f.description}`).join('\n')
+  ? renderFinOpsBlock(finOps, scanData.finOpsCostEstimate)
   : 'No specific hardware constraints or GPU requests detected in infrastructure manifests.'}
 
 ## 3. Continuous Risk Management (Article 9 & Annex IV, Section 4)
