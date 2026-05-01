@@ -496,10 +496,150 @@ decoration. Compliance reporting stays deterministic in CI even when a
 third-party API is having a bad day.
 
 ## Pending work (Wave 7c–7f remainder)
-None. Phase 5 (sovereignty / EU hosting / Helm) and Phase 8 (GTM /
-landing page / SEO) remain as deliberately-deferred Tier D work
-per the user's direction; they are quarter-scale projects, not
-commit-scale.
+None. Phase 8 (GTM / landing page / SEO) and the remaining Phase 5
+items (EU hosting migration off Render) stay as deliberately-deferred
+Tier D work per the user's direction; they are quarter-scale projects,
+not commit-scale. Wave 8a (below) closes the Helm-chart half of
+Phase 5.
+
+### Wave 8a (shipped — Helm chart for self-hosted Enterprise tier)
+
+The original blueprint analysis flagged "Helm chart for the Enterprise
+tier" as the gateway to Phase 5 (Sovereignty), and successive
+reassessments left Phase 5 at 10% because no infrastructure-as-code
+deliverable existed. Wave 8a adds a production-grade Helm chart at
+`deploy/helm/aicap/` so an on-prem / sovereign-cloud customer can
+`helm install aicap ./deploy/helm/aicap -f my-values.yaml` and run
+the backend in their own cluster against their own Postgres.
+
+- **Chart layout** — `Chart.yaml` (apiVersion v2, appVersion 0.7.0),
+  `values.yaml`, `README.md`, `.helmignore`, plus templates:
+  `_helpers.tpl`, `configmap.yaml`, `secret.yaml`, `deployment.yaml`,
+  `service.yaml`, `ingress.yaml`, `serviceaccount.yaml`, `hpa.yaml`,
+  `poddisruptionbudget.yaml`, `migration-job.yaml`, `NOTES.txt`.
+
+- **Probes wired to Wave-4 split** — `livenessProbe` hits `/livez`
+  (always 200 if the process can serve, so a failing DB does NOT
+  trigger pod restart-loops); `readinessProbe` hits `/readyz` (503
+  when the DB ping fails, so the orchestrator pulls the pod out
+  of the LB).
+
+- **Secrets handling** — two modes. Inline (`secrets.supabaseDbUrl`
+  etc. set in values) for dev / quick-start; external
+  (`secrets.existingSecret: my-secret`) for production with
+  sealed-secrets / external-secrets / vault. The chart hashes the
+  rendered ConfigMap + Secret content into pod annotations so a
+  `helm upgrade` with changed values rolls the pods automatically.
+
+- **Migration strategy** — two opt-in modes. Default
+  (`config.runMigrations=true`) runs migrations on pod startup,
+  matching the existing Render deployment shape. Opt-in
+  (`migrationJob.enabled=true`) creates a pre-upgrade Helm hook
+  Job running `aicap --migrate`, which gates the rollout on
+  migration success. Pre-upgrade only (not pre-install) because
+  chart-managed Secrets aren't rendered until the main install
+  phase; first installs use startup-mode migration. Documented
+  in chart README with the workaround (use `existingSecret` if
+  you need migration-gated first installs).
+
+- **Security defaults** — non-root uid 65532 (matches the
+  distroless `nonroot` user in the Dockerfile),
+  `readOnlyRootFilesystem: true` with an `emptyDir` mounted at
+  `/tmp` for stdlib helpers, all caps dropped,
+  `automountServiceAccountToken: false` (the binary doesn't talk
+  to the Kubernetes API), `seccompProfile: RuntimeDefault`.
+
+- **Optional resources** — `Ingress` (off by default — bring your
+  own controller), `HorizontalPodAutoscaler` (off by default,
+  configured for CPU + memory targets), `PodDisruptionBudget`
+  (off by default; recommended for prod via `minAvailable: 1`).
+
+- **What the chart does NOT deploy** — Postgres (bring your own:
+  Supabase, RDS, Cloud SQL, in-cluster CloudNativePG; bundling
+  storage choices conflicts with each operator's durability
+  policy) and the React frontend (static site → Vercel /
+  Cloudflare Pages / separate Deployment + Ingress). The chart's
+  `viteFrontendUrl` value is the CORS allowlist for the frontend
+  origin.
+
+- **No tests yet** — Helm isn't part of the Go module's CI toolchain.
+  A `helm lint` + `helm template` smoke job in
+  `.github/workflows/` is queued for a follow-up wave.
+
+## Pending work (Wave 8a remainder)
+None for the Helm chart itself. CI smoke-test (helm lint + template
+render against multiple value sets) is queued alongside the EU hosting
+migration evaluation as part of the Phase-5 follow-up wave.
+
+### Wave 8b (shipped — Phase 8 GTM surface, commit-scale)
+
+Phase 8 (GTM) had stayed at 15% across every reassessment because no
+public marketing surface, SEO infrastructure, or contributor docs
+existed. Wave 8b lands the commit-scale half of Phase 8: a real
+landing page on the unauthed path, SEO meta + structured data, modern
+multi-platform CI templates, and a `CONTRIBUTING.md`.
+
+- **`frontend/index.html`** — replaced the placeholder `<title>frontend</title>`
+  with a real SEO-shaped `<head>`: title, meta description, keywords,
+  robots, canonical, Open Graph, Twitter card, theme-color, and JSON-LD
+  structured data (`SoftwareApplication` with two `Offer` blocks for
+  Free + Pro pricing, `Organization` publisher). Crawlable on first
+  paint without server-side rendering.
+
+- **Public marketing surface under `LandingAuth`** — three new
+  components mounted below the existing hero + auth form on the unauthed
+  path:
+  - `components/PricingSection.jsx` — three-tier card (Free CLI / Pro
+    $49/mo / Enterprise self-host) with feature lists, CTAs, and
+    `mailto:enterprise@aicap.dev` for sales. The `id="pricing"`
+    target lets footer / external links scroll-link directly.
+  - `components/FAQSection.jsx` — 8 FAQ entries answering the
+    questions a prospect actually asks before signing up (CLI vs SaaS
+    boundary, what Annex IV covers, ledger immutability, data
+    residency, Stripe failure handling, telemetry, policy gating).
+    Renders as native `<details>` for keyboard accessibility +
+    crawler readability.
+  - `components/MarketingFooter.jsx` — four-column footer (Product,
+    Resources, Compliance, Contact) with the legal/nav links a
+    marketing surface needs. Year auto-updates via `new Date()`.
+  The form panel grew an `id="signup"` so the Pricing CTA can scroll
+  to it. The "Trust/Social Proof" strip lost its `pb-10` so the new
+  sections flow without a double border.
+
+- **`templates/gitlab-ci.yml`** — rewrite. Old version cloned the
+  repo and `go build`-ed on every pipeline (slow, wasteful, pinned
+  Go 1.22). New version pulls the pre-built `aicap-linux-amd64`
+  release binary from a configurable `AICAP_VERSION` (default
+  `v1.0.0-beta` to match `action.yml`), uses `alpine:3.20` (no Go
+  toolchain needed), exposes a reusable `.aicap-base` extends-anchor,
+  and adds an optional `aicap_cyclonedx_sbom` job that emits the
+  CycloneDX SBOM as a 30-day artifact.
+
+- **`templates/bitbucket-pipelines.yml`** — same rewrite pattern.
+  Anchored steps (`*aicap-scan`, `*aicap-cyclonedx`) for default /
+  PR / branch flows; CycloneDX SBOM artifact on `main` and `master`.
+  Drops the Go toolchain dependency.
+
+- **`CONTRIBUTING.md`** — repo-root contributor guide. Covers branch
+  model (PR `development`, never `main`), local backend + frontend
+  + Helm-chart workflows, ranked list of high-impact contribution
+  types (manifest parsers, risk-catalog entries, GPU cost catalog,
+  governance detectors, CI templates), explicit "what we won't
+  merge" list (large renames, speculative abstractions, third-party
+  services without a fallback, hash-formula changes without a chain
+  migration story), and security-disclosure email.
+
+- **No new backend code** — Wave 8b is purely surface / docs / CI
+  template work. Frontend tests still 9-passing, build still green
+  (one fix: dropped the lucide `Github` icon that was removed
+  upstream).
+
+## Pending work (Wave 8b remainder)
+The remaining Phase 8 ground is non-commit-scale: programmatic SEO
+content (long-tail technical guides), screenshots in the README,
+GitHub Marketplace listing curation, and a public docs site
+(currently the README is the docs). Phase 5 still has the EU hosting
+migration off Render queued. Both are next-wave Tier D.
 
 ## Wave 3b/3c deployment checklist (run before merging to main)
 - [ ] RLS can stay as-is after Wave 3c — the frontend no longer reads `api_keys`

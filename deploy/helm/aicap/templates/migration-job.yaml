@@ -1,0 +1,51 @@
+{{- if .Values.migrationJob.enabled -}}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "aicap.fullname" . }}-migrate-{{ .Release.Revision }}
+  labels:
+    {{- include "aicap.labels" . | nindent 4 }}
+  annotations:
+    # Run as a pre-upgrade hook only. Pre-install would fire before the
+    # Secret exists for a fresh install (chart-managed Secrets are not
+    # rendered until the main install phase). For first install, the
+    # binary's RUN_MIGRATIONS=true on startup handles it; the hook
+    # gates subsequent upgrades on migration success. If you need
+    # migration-gated *first* installs, set secrets.existingSecret to
+    # a Secret you manage out-of-band (sealed-secrets / external-
+    # secrets / vault) and re-enable the pre-install hook below.
+    "helm.sh/hook": pre-upgrade
+    "helm.sh/hook-weight": "-5"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: {{ .Values.migrationJob.backoffLimit }}
+  ttlSecondsAfterFinished: {{ .Values.migrationJob.ttlSecondsAfterFinished }}
+  template:
+    metadata:
+      labels:
+        {{- include "aicap.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: migrate
+    spec:
+      restartPolicy: OnFailure
+      serviceAccountName: {{ include "aicap.serviceAccountName" . }}
+      automountServiceAccountToken: false
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: migrate
+          image: {{ include "aicap.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          # The binary takes a --migrate subcommand that runs migrations
+          # and exits. See main.go.
+          args: ["--migrate"]
+          envFrom:
+            - secretRef:
+                name: {{ include "aicap.secretName" . }}
+          env:
+            - name: LOG_LEVEL
+              value: {{ .Values.config.logLevel | quote }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+{{- end }}
