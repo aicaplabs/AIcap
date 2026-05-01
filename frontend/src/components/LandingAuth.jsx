@@ -2,6 +2,9 @@ import React, { useState } from 'react';
 import { Shield, CheckCircle } from 'lucide-react';
 
 import { supabase } from '../lib/supabase.js';
+import PricingSection from './PricingSection.jsx';
+import FAQSection from './FAQSection.jsx';
+import MarketingFooter from './MarketingFooter.jsx';
 
 // Public landing page + login/signup form. Self-contained: owns its own
 // form state and the supabase signUp/signInWithPassword call. The App
@@ -59,7 +62,7 @@ export default function LandingAuth() {
         </div>
 
         {/* Login/Signup Form */}
-        <div className="bg-white p-8 rounded-2xl shadow-[0_8px_30px_rgb(0,0,0,0.12)] border border-slate-100 relative">
+        <div id="signup" className="bg-white p-8 rounded-2xl shadow-[0_8px_30px_rgb(0,0,0,0.12)] border border-slate-100 relative scroll-mt-8">
           <div className="absolute -top-6 -right-6 text-7xl opacity-5">🛡️</div>
           <div className="text-center mb-8 relative z-10">
             <h3 className="text-2xl font-bold text-slate-900">{isSignUp ? 'Start your Pro trial' : 'Sign in to AIcap Pro'}</h3>
@@ -109,7 +112,7 @@ export default function LandingAuth() {
       </div>
 
       {/* Trust/Social Proof Section */}
-      <div className="mt-20 pt-10 border-t border-slate-200 text-center pb-10">
+      <div className="mt-20 pt-10 border-t border-slate-200 text-center">
         <p className="text-sm font-bold text-slate-400 uppercase tracking-widest mb-6">Built for Modern Tech Stacks</p>
         <div className="flex flex-wrap justify-center gap-8 md:gap-16 opacity-60 grayscale filter">
           <span className="text-xl font-bold font-mono">Python</span>
@@ -119,6 +122,10 @@ export default function LandingAuth() {
           <span className="text-xl font-bold font-mono">Terraform</span>
         </div>
       </div>
+
+      <PricingSection />
+      <FAQSection />
+      <MarketingFooter />
     </div>
   );
 }
