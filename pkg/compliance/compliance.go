@@ -9,7 +9,19 @@ import (
 
 	"aicap/pkg/types"
 )
+// GenerateAnnexIVMarkdown is the convenience entry point used by
+// callers (e.g. the CLI) that don't have a pre-computed risk
+// register on hand. It just delegates to the with-register variant
+// after computing the catalog-only register internally.
 func GenerateAnnexIVMarkdown(bom types.AIBOM) string {
+	return GenerateAnnexIVMarkdownWithRegister(bom, ComputeRiskRegister(bom))
+}
+
+// GenerateAnnexIVMarkdownWithRegister renders Annex IV using a
+// caller-supplied register. /api/save-proof uses this so the
+// rendered markdown reflects the OSV-enriched register (Wave 7f),
+// not just the catalog-only one. Pure formatter — does no I/O.
+func GenerateAnnexIVMarkdownWithRegister(bom types.AIBOM, register types.RiskRegister) string {
 	var sb strings.Builder
 	sb.WriteString("# EU AI Act - Annex IV Technical Documentation\n\n")
 	sb.WriteString(fmt.Sprintf("*Generated: %s*\n\n", time.Now().UTC().Format(time.RFC3339)))
@@ -20,7 +32,11 @@ func GenerateAnnexIVMarkdown(bom types.AIBOM) string {
 	sb.WriteString(fmt.Sprintf("- **Version / Commit SHA:** `%s`\n", bom.CommitSha))
 	sb.WriteString(fmt.Sprintf("- **Total Files Scanned:** %d\n", bom.ScannedFiles))
 	sb.WriteString(fmt.Sprintf("- **AI Components Detected:** %d\n", len(bom.Dependencies)))
-	sb.WriteString("- **Intended Purpose:** `[REQUIRES MANUAL INPUT: Describe the exact purpose of this AI system]`\n\n")
+	if bom.Policy != nil && bom.Policy.Purpose != "" {
+		sb.WriteString(fmt.Sprintf("- **Intended Purpose:** %s\n\n", bom.Policy.Purpose))
+	} else {
+		sb.WriteString("- **Intended Purpose:** `[REQUIRES MANUAL INPUT: Describe the exact purpose of this AI system]`\n\n")
+	}
 
 	// Section 2: Architecture & Components
 	sb.WriteString("## 2. System Architecture & Components (Annex IV, Section 2)\n\n")
@@ -72,14 +88,38 @@ func GenerateAnnexIVMarkdown(bom types.AIBOM) string {
 	sb.WriteString("\n")
 
 	// 2(c): Hardware & Infrastructure
-	sb.WriteString("### 2(c) Hardware Requirements & Deployment (FinOps Telemetry)\n")
+	sb.WriteString("### 2(c) Hardware Requirements & Estimated Monthly Cost (FinOps Telemetry)\n")
 	if len(bom.FinOps) == 0 {
 		sb.WriteString("No specific hardware constraints or GPU requests detected in infrastructure manifests.\n\n")
 	} else {
+		// Wave 7b: each finding now optionally carries an EstimatedCost
+		// from the curated catalog (pkg/finops/gpu_costs.json). Render
+		// it inline so auditors see the dollar figure per resource;
+		// the summary block below aggregates the total range.
 		for _, fin := range bom.FinOps {
 			sb.WriteString(fmt.Sprintf("- **Resource:** %s\n", fin.Resource))
 			sb.WriteString(fmt.Sprintf("  - **Finding:** %s\n", fin.Description))
 			sb.WriteString(fmt.Sprintf("  - **Severity:** %s\n", fin.Severity))
+			if fin.EstimatedCost != nil {
+				sb.WriteString(fmt.Sprintf(
+					"  - **Estimated cost:** $%.2f–$%.2f /hr → **$%.0f–$%.0f /month** (%s family `%s`)\n",
+					fin.EstimatedCost.HourlyUSDLow, fin.EstimatedCost.HourlyUSDHigh,
+					fin.EstimatedCost.MonthlyUSDLow, fin.EstimatedCost.MonthlyUSDHigh,
+					fin.EstimatedCost.Cloud, fin.EstimatedCost.InstanceFamily,
+				))
+			}
+		}
+		// BOM-level summary surfaces the aggregate, which is what the
+		// FinOps user actually budgets against. Costed-vs-uncosted
+		// counters tell auditors when the headline figure is missing
+		// detections.
+		if est := bom.FinOpsCostEstimate; est != nil && (est.CostedFindings > 0 || est.UncostedFindings > 0) {
+			sb.WriteString(fmt.Sprintf("\n**Estimated total monthly cost:** $%.0f–$%.0f %s "+
+				"(across %d costed finding(s); %d additional finding(s) had no catalog match).\n",
+				est.TotalMonthlyUSDLow, est.TotalMonthlyUSDHigh, est.Currency,
+				est.CostedFindings, est.UncostedFindings))
+			sb.WriteString(fmt.Sprintf("_Assumptions: %d hours/month. %s_\n",
+				est.AssumedHoursPerMonth, est.Disclaimer))
 		}
 		sb.WriteString("\n")
 	}
@@ -88,30 +128,41 @@ func GenerateAnnexIVMarkdown(bom types.AIBOM) string {
 	sb.WriteString("## 3. Continuous Risk Management (Article 9 & Annex IV, Section 4)\n")
 	sb.WriteString(fmt.Sprintf("**Current Automated Posture:** %s\n\n", bom.Compliance))
 
-	// Auto-generated risk register
-	sb.WriteString("### 3(a) Automated Risk Register\n")
-	highRiskDeps := []types.AIDependency{}
+	// 3(a) Auto-generated risk register (Wave 6) — every detected dep
+	// cross-referenced against the curated catalog of OWASP ML Top 10
+	// categories, MITRE ATLAS techniques, and EU AI Act articles.
+	// Same data lives in proof_drills.risk_register_state (JSONB) so
+	// the dashboard / API can render the register without re-parsing
+	// markdown. Wave 7f: caller passes in the register so live OSV
+	// vuln IDs (when enrichment ran) show up in the rendered table.
+	sb.WriteString("### 3(a) Cross-Referenced Risk Register (OWASP ML Top 10 / MITRE ATLAS)\n\n")
+	sb.WriteString(fmt.Sprintf(
+		"**Findings:** %d total — High: %d, Medium: %d, Low: %d\n\n",
+		register.Summary.Total, register.Summary.High,
+		register.Summary.Medium, register.Summary.Low,
+	))
+	if rendered := RenderRiskRegisterMarkdown(register); rendered != "" {
+		sb.WriteString(rendered)
+		sb.WriteString("\n")
+		// Per-finding mitigation guidance — kept below the summary table
+		// because the table is what auditors scan first.
+		sb.WriteString("**Recommended mitigations:**\n\n")
+		for _, f := range register.Findings {
+			sb.WriteString(fmt.Sprintf("- **%s**: %s\n", f.Component, f.Mitigation))
+		}
+		sb.WriteString("\n")
+	} else {
+		sb.WriteString("No catalogued AI risks detected. (Catalog scope is intentionally MVP — see pkg/compliance/vulns.json.)\n\n")
+	}
+
+	// Exposed-secret findings stay separate because they're an immediate
+	// remediation requirement, not an Article 9 risk-management item.
 	secretFindings := []types.AIDependency{}
 	for _, dep := range bom.Dependencies {
-		if dep.RiskLevel == "High" && dep.Name != "Exposed Secret" {
-			highRiskDeps = append(highRiskDeps, dep)
-		}
 		if dep.Name == "Exposed Secret" {
 			secretFindings = append(secretFindings, dep)
 		}
 	}
-
-	if len(highRiskDeps) > 0 {
-		sb.WriteString("\n| Component | Risk | Location | Mitigation |\n")
-		sb.WriteString("|---|---|---|---|\n")
-		for _, dep := range highRiskDeps {
-			sb.WriteString(fmt.Sprintf("| %s (v%s) | %s | %s | `[REQUIRES INPUT]` |\n", dep.Name, dep.Version, dep.RiskLevel, dep.Location))
-		}
-		sb.WriteString("\n")
-	} else {
-		sb.WriteString("No high-risk AI components detected.\n\n")
-	}
-
 	if len(secretFindings) > 0 {
 		sb.WriteString(fmt.Sprintf("⚠️ **CRITICAL:** %d exposed secret(s) detected in source code. Immediate remediation required.\n\n", len(secretFindings)))
 	}
@@ -150,13 +201,32 @@ func GenerateAnnexIVMarkdown(bom types.AIBOM) string {
 	} else {
 		sb.WriteString("- [ ] **BLOCKER:** High-risk AI dependencies detected without explicit mitigation.\n")
 	}
-	sb.WriteString("- [ ] `[REQUIRES MANUAL INPUT: Detail prompt injection mitigation strategy]`\n\n")
+	// 3(c) prompt-injection mitigation — Wave 7a auto-populates from
+	// detected guardrail libraries (lakera, rebuff, nemoguardrails, …).
+	// If none were found we keep the manual-input prompt; pretending we
+	// have a defence we can't see is exactly the kind of false-positive
+	// the original analysis warned against.
+	if defs := bom.Governance.PromptInjectionDefenses; len(defs) > 0 {
+		sb.WriteString(fmt.Sprintf("- [x] Prompt-injection defences detected: %s\n", joinEvidence(defs)))
+		for _, s := range defs {
+			sb.WriteString(fmt.Sprintf("  - %s _(source: %s, location: %s)_\n", s.Description, s.Source, s.Location))
+		}
+		sb.WriteString("\n")
+	} else {
+		sb.WriteString("- [ ] `[REQUIRES MANUAL INPUT: Detail prompt injection mitigation strategy]`\n\n")
+	}
 
-	// Section 4: Human Oversight
+	// Section 4: Human Oversight & Data Governance.
+	// Wave 7a fills in HITL, Training Data, and Bias Monitoring from
+	// scanner signals when available. Each subsection falls back to
+	// the original `[REQUIRES MANUAL INPUT]` placeholder when no
+	// signal was detected — auditors get evidence-or-prompt, never
+	// silent omission.
 	sb.WriteString("## 4. Human Oversight & Data Governance (Annex IV, Section 3)\n")
-	sb.WriteString("- **Human-in-the-loop (HITL) Controls:** `[REQUIRES MANUAL INPUT]`\n")
-	sb.WriteString("- **Training Data Provenance:** `[REQUIRES MANUAL INPUT]`\n")
-	sb.WriteString("- **Bias Monitoring:** `[REQUIRES MANUAL INPUT]`\n\n")
+	renderGovernanceSection(&sb, "Human-in-the-loop (HITL) Controls", bom.Governance.HITL)
+	renderGovernanceSection(&sb, "Training Data Provenance", bom.Governance.TrainingData)
+	renderGovernanceSection(&sb, "Bias Monitoring", bom.Governance.BiasMonitoring)
+	sb.WriteString("\n")
 
 	// Section 5: Proof Drill
 	sb.WriteString("## 5. Immutable Compliance Proof (AIcap Proof Drill)\n")
@@ -168,6 +238,35 @@ func GenerateAnnexIVMarkdown(bom types.AIBOM) string {
 	sb.WriteString("- **Cryptographic proof hash available in the AIcap Cloud dashboard.**\n")
 
 	return sb.String()
+}
+
+// renderGovernanceSection writes one Annex IV § 4 sub-bullet, either
+// with detected evidence or the `[REQUIRES MANUAL INPUT]` placeholder.
+// Pulled out of GenerateAnnexIVMarkdown so the three sub-sections (HITL,
+// Training Data, Bias Monitoring) share identical formatting — auditors
+// reading three different shapes is a needless cognitive load.
+func renderGovernanceSection(sb *strings.Builder, title string, signals []types.GovernanceSignal) {
+	if len(signals) == 0 {
+		sb.WriteString(fmt.Sprintf("- **%s:** `[REQUIRES MANUAL INPUT]`\n", title))
+		return
+	}
+	sb.WriteString(fmt.Sprintf("- **%s:** %d signal(s) detected — see evidence below.\n", title, len(signals)))
+	for _, s := range signals {
+		sb.WriteString(fmt.Sprintf("  - %s _(source: %s, location: `%s`)_\n", s.Description, s.Source, s.Location))
+	}
+}
+
+// joinEvidence collapses a slice of GovernanceSignal evidence strings
+// into a comma-separated list for the inline summary line at the top
+// of a § 3(c) entry. Deliberately simple — no de-duping, since multiple
+// detections of the same lib in different files are independently
+// useful audit signals.
+func joinEvidence(signals []types.GovernanceSignal) string {
+	parts := make([]string, 0, len(signals))
+	for _, s := range signals {
+		parts = append(parts, "`"+s.Evidence+"`")
+	}
+	return strings.Join(parts, ", ")
 }
 
 // CycloneDX SBOM structures — minimal CycloneDX 1.5 compatible output
@@ -220,6 +319,8 @@ func LoadPolicyConfig(scanDir string) *types.PolicyConfig {
 				policy.BlockOnHighRisk = val == "true"
 			case "require_licenses":
 				policy.RequireLicenses = val == "true"
+			case "purpose":
+				policy.Purpose = val
 			}
 		}
 	}

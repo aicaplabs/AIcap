@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"aicap/pkg/compliance"
+	"aicap/pkg/finops"
 	"aicap/pkg/types"
 )
 
@@ -101,6 +102,9 @@ func PerformScan(scanDir string) types.AIBOM {
 			if info.Name() == "requirements.txt" {
 				deps := parseRequirementsTxt(path)
 				bom.Dependencies = append(bom.Dependencies, deps...)
+				bias, defenses := detectGovernanceFromManifest(path)
+				bom.Governance.BiasMonitoring = append(bom.Governance.BiasMonitoring, bias...)
+				bom.Governance.PromptInjectionDefenses = append(bom.Governance.PromptInjectionDefenses, defenses...)
 			}
 			if info.Name() == "package.json" {
 				deps := parsePackageJson(path)
@@ -112,6 +116,42 @@ func PerformScan(scanDir string) types.AIBOM {
 			}
 			if info.Name() == "pyproject.toml" {
 				deps := parsePyProjectToml(path)
+				bom.Dependencies = append(bom.Dependencies, deps...)
+				bias, defenses := detectGovernanceFromManifest(path)
+				bom.Governance.BiasMonitoring = append(bom.Governance.BiasMonitoring, bias...)
+				bom.Governance.PromptInjectionDefenses = append(bom.Governance.PromptInjectionDefenses, defenses...)
+			}
+			// Wave 7c — additional Python dep manifests.
+			// poetry.lock and Pipfile.lock are the resolved trees that
+			// Poetry / Pipenv emit; they're authoritative for the actual
+			// versions a deploy will install, more so than pyproject.toml
+			// or Pipfile (which carry version ranges).
+			if info.Name() == "poetry.lock" {
+				deps := parsePoetryLock(path)
+				bom.Dependencies = append(bom.Dependencies, deps...)
+			}
+			if info.Name() == "Pipfile.lock" {
+				deps := parsePipfileLock(path)
+				bom.Dependencies = append(bom.Dependencies, deps...)
+			}
+			// Wave 7c — pnpm + yarn lockfiles. Same role for the JS
+			// ecosystem as the Python lockfiles above. package.json
+			// alone shows version *ranges*; the lockfiles tell us the
+			// resolved version that actually got installed.
+			if info.Name() == "pnpm-lock.yaml" {
+				deps := parsePnpmLock(path)
+				bom.Dependencies = append(bom.Dependencies, deps...)
+			}
+			if info.Name() == "yarn.lock" {
+				deps := parseYarnLock(path)
+				bom.Dependencies = append(bom.Dependencies, deps...)
+			}
+			// Wave 7c — Conda environment.yml. Common in ML research
+			// codebases; we only catch the explicit version-pinned
+			// entries (numpy=1.26.0) and the pip sub-list — looser
+			// constraints aren't useful for an SBOM.
+			if info.Name() == "environment.yml" || info.Name() == "environment.yaml" {
+				deps := parseCondaEnv(path)
 				bom.Dependencies = append(bom.Dependencies, deps...)
 			}
 			if info.Name() == "Dockerfile" || strings.HasPrefix(info.Name(), "Dockerfile.") {
@@ -125,6 +165,10 @@ func PerformScan(scanDir string) types.AIBOM {
 			if strings.HasSuffix(info.Name(), ".py") {
 				deps := parsePythonSource(path)
 				bom.Dependencies = append(bom.Dependencies, deps...)
+				training, bias, defenses := detectGovernanceFromPython(path)
+				bom.Governance.TrainingData = append(bom.Governance.TrainingData, training...)
+				bom.Governance.BiasMonitoring = append(bom.Governance.BiasMonitoring, bias...)
+				bom.Governance.PromptInjectionDefenses = append(bom.Governance.PromptInjectionDefenses, defenses...)
 			}
 
 			// Scan .env files for leaked secrets
@@ -151,20 +195,35 @@ func PerformScan(scanDir string) types.AIBOM {
 			}
 
 			if ext == ".yaml" || ext == ".yml" {
-				finops := parseKubernetesManifest(path)
-				bom.FinOps = append(bom.FinOps, finops...)
+				// Wave 7b renamed the local var (was `finops`) so it
+				// doesn't shadow the new pkg/finops import.
+				k8sFinOps := parseKubernetesManifest(path)
+				bom.FinOps = append(bom.FinOps, k8sFinOps...)
 				// Also check for Helm values with GPU resources
 				if info.Name() == "values.yaml" || info.Name() == "values.yml" {
 					helmFinOps := parseHelmValues(path)
 					bom.FinOps = append(bom.FinOps, helmFinOps...)
 				}
+				// Wave 7a: HITL signals from k8s + Argo + GitHub Actions.
+				// detectGovernanceFromYAML covers k8s/Argo (regex-based,
+				// path-agnostic). detectGovernanceFromGitHubActions only
+				// fires for files under .github/workflows so we don't
+				// double-count environment: lines from unrelated YAML.
+				bom.Governance.HITL = append(bom.Governance.HITL, detectGovernanceFromYAML(path)...)
+				bom.Governance.HITL = append(bom.Governance.HITL, detectGovernanceFromGitHubActions(path)...)
 			}
 
-			// Terraform FinOps: parse .tf files for GPU instance types
+			// Terraform FinOps: parse .tf files for GPU instance types.
+			// Wave 7a: also pull training-data bucket signals from the
+			// same file so we don't open it twice.
 			if ext == ".tf" {
-				finops := parseTerraformFile(path)
-				bom.FinOps = append(bom.FinOps, finops...)
+				tfFinOps := parseTerraformFile(path)
+				bom.FinOps = append(bom.FinOps, tfFinOps...)
+				bom.Governance.TrainingData = append(bom.Governance.TrainingData, detectGovernanceFromTerraform(path)...)
 			}
+
+			// Wave 7a: DVC files are training-data versioning evidence.
+			bom.Governance.TrainingData = append(bom.Governance.TrainingData, detectGovernanceFromDVC(path)...)
 		}
 		return nil
 	})
@@ -172,6 +231,12 @@ func PerformScan(scanDir string) types.AIBOM {
 	if err != nil {
 		log.Printf("Error scanning directory: %v", err)
 	}
+
+	// Wave 7b: aggregate per-finding cost attributions into a BOM-level
+	// summary. EstimateBOMCost returns nil when there are no FinOps
+	// findings at all, in which case the field stays unset and the
+	// `omitempty` on the JSON tag drops it from output.
+	bom.FinOpsCostEstimate = finops.EstimateBOMCost(bom)
 
 	// Determine overall compliance posture based on findings
 	bom.Compliance = "Passed"
@@ -216,6 +281,7 @@ func PerformScan(scanDir string) types.AIBOM {
 	// Load .aicap.yml policy if it exists in the scanned directory
 	policy := compliance.LoadPolicyConfig(scanDir)
 	if policy != nil {
+		bom.Policy = policy
 		bom.PolicyViolations = compliance.EvaluatePolicy(policy, bom)
 		if len(bom.PolicyViolations) > 0 {
 			for _, v := range bom.PolicyViolations {
@@ -769,66 +835,46 @@ func parseTerraformFile(filePath string) []types.FinOpsFinding {
 
 	content := strings.ToLower(string(data))
 
-	// AWS GPU instance families
-	awsGPUInstances := map[string]string{
-		"p3.":   "NVIDIA V100 GPU (p3) — $3.06-$24.48/hr",
-		"p4d.":  "NVIDIA A100 GPU (p4d) — $32.77/hr",
-		"p4de.": "NVIDIA A100 80GB GPU (p4de) — $40.97/hr",
-		"p5.":   "NVIDIA H100 GPU (p5) — $98.32/hr",
-		"g4dn.": "NVIDIA T4 GPU (g4dn) — $0.53-$7.82/hr",
-		"g5.":   "NVIDIA A10G GPU (g5) — $1.01-$16.29/hr",
-		"g5g.":  "AWS Graviton GPU (g5g) — $0.42-$2.74/hr",
-		"g6.":   "NVIDIA L4 GPU (g6) — $0.80-$13.35/hr",
-		"inf1.": "AWS Inferentia (inf1) — $0.23-$4.72/hr",
-		"inf2.": "AWS Inferentia2 (inf2) — $0.76-$12.98/hr",
-		"trn1.": "AWS Trainium (trn1) — $1.34-$21.50/hr",
+	// Wave 7b: cost data lives in pkg/finops/gpu_costs.json. LookupGPUCost
+	// returns the first matching family — finding cost ranges, hourly +
+	// monthly, plus a human-readable family description that we splice
+	// into the existing Severity / Description shape so the dashboard
+	// table doesn't need any field-level changes.
+	cost := finops.LookupGPUCost(content)
+	if cost == nil {
+		// No GPU instance family matched — nothing to report from this
+		// file. Earlier versions of this function would emit an
+		// uncostable warning, but the K8s parser already covers the
+		// "GPU detected with no instance type" case and we'd just be
+		// double-reporting.
+		return found
 	}
 
-	// Azure GPU instance families
-	azureGPUInstances := map[string]string{
-		"standard_nc": "NVIDIA T4/V100 GPU (NC-series)",
-		"standard_nd": "NVIDIA A100/H100 GPU (ND-series)",
-		"standard_nv": "NVIDIA GPU for visualization (NV-series)",
+	// Spot / preemptible detection stays heuristic — Terraform can express
+	// it many ways (capacity_type = "spot", spot_price = ..., scheduling
+	// blocks, tags). We treat "any of the keywords appearing in the file"
+	// as evidence; false positives are tolerable because the message is
+	// always advisory.
+	hasSpot := strings.Contains(content, "spot") ||
+		strings.Contains(content, "preemptible") ||
+		(strings.Contains(content, "capacity_type") && strings.Contains(content, "spot"))
+
+	severity := "Warning"
+	description := fmt.Sprintf("%s instance detected in Terraform config: %s.", cost.Cloud, cost.Description)
+	if !hasSpot {
+		description += " Consider using spot/preemptible instances for 60-90% cost savings on non-critical workloads."
+	} else {
+		severity = "Info"
+		description += " Spot/preemptible pricing detected — good cost optimization."
 	}
 
-	// GCP GPU instance families
-	gcpGPUInstances := map[string]string{
-		"a2-highgpu":  "NVIDIA A100 GPU (a2-highgpu)",
-		"a2-megagpu":  "NVIDIA A100 80GB GPU (a2-megagpu)",
-		"g2-standard": "NVIDIA L4 GPU (g2-standard)",
-		"a3-highgpu":  "NVIDIA H100 GPU (a3-highgpu)",
-	}
-
-	checkInstances := func(instances map[string]string, cloud string) {
-		for instanceType, desc := range instances {
-			if strings.Contains(content, instanceType) {
-				// Check for spot/preemptible configurations
-				hasSpot := strings.Contains(content, "spot") ||
-					strings.Contains(content, "preemptible") ||
-					strings.Contains(content, "capacity_type") && strings.Contains(content, "spot")
-
-				severity := "Warning"
-				description := fmt.Sprintf("%s instance detected in Terraform config: %s.", cloud, desc)
-				if !hasSpot {
-					description += " Consider using spot/preemptible instances for 60-90%% cost savings on non-critical workloads."
-				} else {
-					severity = "Info"
-					description += " Spot/preemptible pricing detected — good cost optimization."
-				}
-
-				found = append(found, types.FinOpsFinding{
-					Resource:    filepath.Base(filePath),
-					Severity:    severity,
-					Description: description,
-					Location:    filePath,
-				})
-			}
-		}
-	}
-
-	checkInstances(awsGPUInstances, "AWS")
-	checkInstances(azureGPUInstances, "Azure")
-	checkInstances(gcpGPUInstances, "GCP")
+	found = append(found, types.FinOpsFinding{
+		Resource:      filepath.Base(filePath),
+		Severity:      severity,
+		Description:   description,
+		Location:      filePath,
+		EstimatedCost: cost,
+	})
 
 	return found
 }

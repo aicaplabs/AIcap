@@ -1,0 +1,61 @@
+AIcap {{ .Chart.AppVersion }} has been installed as release "{{ .Release.Name }}" in namespace "{{ .Release.Namespace }}".
+
+1. Verify the pods are healthy:
+
+   kubectl get pods --namespace {{ .Release.Namespace }} -l "app.kubernetes.io/instance={{ .Release.Name }}"
+
+2. Reach the API:
+
+{{- if .Values.ingress.enabled }}
+   {{- range $host := .Values.ingress.hosts }}
+     {{- range .paths }}
+   http{{ if $.Values.ingress.tls }}s{{ end }}://{{ $host.host }}{{ .path }}
+     {{- end }}
+   {{- end }}
+{{- else if contains "NodePort" .Values.service.type }}
+   export NODE_PORT=$(kubectl get --namespace {{ .Release.Namespace }} -o jsonpath="{.spec.ports[0].nodePort}" services {{ include "aicap.fullname" . }})
+   export NODE_IP=$(kubectl get nodes --namespace {{ .Release.Namespace }} -o jsonpath="{.items[0].status.addresses[0].address}")
+   echo http://$NODE_IP:$NODE_PORT
+{{- else if contains "LoadBalancer" .Values.service.type }}
+   NOTE: It may take a few minutes for the LoadBalancer IP to be available.
+   export SERVICE_IP=$(kubectl get svc --namespace {{ .Release.Namespace }} {{ include "aicap.fullname" . }} --template "{{ "{{" }} range (index .status.loadBalancer.ingress 0) {{ "}}" }}{{ "{{" }}.{{ "}}" }}{{ "{{" }} end {{ "}}" }}")
+   echo http://$SERVICE_IP:{{ .Values.service.port }}
+{{- else if contains "ClusterIP" .Values.service.type }}
+   kubectl --namespace {{ .Release.Namespace }} port-forward svc/{{ include "aicap.fullname" . }} 8080:{{ .Values.service.port }}
+   curl http://localhost:8080/livez
+{{- end }}
+
+3. Health endpoints:
+
+   /livez   — always 200 if the process can serve (for liveness probes)
+   /readyz  — 503 when the DB ping fails (for readiness / load balancer)
+   /healthz — alias of /readyz (legacy compatibility)
+
+4. Required secrets — confirm these are populated:
+
+   kubectl get secret --namespace {{ .Release.Namespace }} {{ include "aicap.secretName" . }} -o jsonpath='{.data}' | jq 'keys'
+
+   Expected keys: SUPABASE_DB_URL, SUPABASE_JWT_SECRET, STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET
+
+{{- if .Values.secrets.existingSecret }}
+   (Reading from external secret: {{ .Values.secrets.existingSecret }})
+{{- end }}
+
+{{- if .Values.config.runMigrations }}
+
+5. Migrations run automatically on pod startup (RUN_MIGRATIONS=true).
+   Watch the first pod's logs to confirm:
+
+   kubectl logs --namespace {{ .Release.Namespace }} -l "app.kubernetes.io/instance={{ .Release.Name }}" --tail=100
+{{- else if .Values.migrationJob.enabled }}
+
+5. Migrations ran via the pre-upgrade Job. Inspect with:
+
+   kubectl get jobs --namespace {{ .Release.Namespace }} -l "app.kubernetes.io/instance={{ .Release.Name }}"
+{{- else }}
+
+5. ⚠ Migrations are NOT being run by this release.
+   Either set config.runMigrations=true or migrationJob.enabled=true,
+   or run `aicap --migrate` manually against SUPABASE_DB_URL before
+   serving traffic.
+{{- end }}

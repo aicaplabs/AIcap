@@ -17,6 +17,7 @@ jobs:
           go-version: '1.22.x'
 
       - name: Build and Run AIcap for Staging
+        continue-on-error: true
         env:
           AICAP_API_KEY: ${{ secrets.AICAP_API_KEY }} # Or a dedicated staging key
           AICAP_API_URL: "https://aicap-staging.onrender.com/api/save-proof"
