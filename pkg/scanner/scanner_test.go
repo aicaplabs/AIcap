@@ -1153,6 +1153,50 @@ func TestComplianceEnrichWithOWASPRisks_NoDuplicateAnnotations(t *testing.T) {
 	}
 }
 
+// W9d: when bom.Policy.Purpose is set, Annex IV Section 1 must render
+// the declared purpose text instead of the [REQUIRES MANUAL INPUT] placeholder.
+func TestAnnexIV_IntendedPurpose_RenderedFromPolicy(t *testing.T) {
+	bom := types.AIBOM{
+		ProjectName: "my-service",
+		Policy: &types.PolicyConfig{
+			Purpose: "Customer churn prediction for EU retail analytics",
+		},
+	}
+	md := compliance.GenerateAnnexIVMarkdown(bom)
+
+	if !strings.Contains(md, "Customer churn prediction for EU retail analytics") {
+		t.Error("Annex IV Section 1 did not render the purpose from bom.Policy.Purpose")
+	}
+	if strings.Contains(md, "REQUIRES MANUAL INPUT: Describe the exact purpose") {
+		t.Error("Annex IV Section 1 still contains placeholder when Policy.Purpose is set")
+	}
+}
+
+// W9d: when bom.Policy is nil the original placeholder must remain so
+// auditors see an explicit prompt rather than a silently empty field.
+func TestAnnexIV_IntendedPurpose_PlaceholderWhenNoPolicy(t *testing.T) {
+	md := compliance.GenerateAnnexIVMarkdown(types.AIBOM{ProjectName: "x"})
+	if !strings.Contains(md, "REQUIRES MANUAL INPUT: Describe the exact purpose") {
+		t.Error("Annex IV Section 1 missing placeholder when bom.Policy is nil")
+	}
+}
+
+// W9d: LoadPolicyConfig must parse the purpose key from .aicap.yml.
+func TestLoadPolicyConfig_ParsesPurpose(t *testing.T) {
+	content := "purpose: Fraud detection for EU financial services\nmax_risk_level: High\n"
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, ".aicap.yml"), []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+	policy := compliance.LoadPolicyConfig(dir)
+	if policy == nil {
+		t.Fatal("Expected policy to be loaded")
+	}
+	if policy.Purpose != "Fraud detection for EU financial services" {
+		t.Errorf("Purpose = %q, want %q", policy.Purpose, "Fraud detection for EU financial services")
+	}
+}
+
 
 
 
