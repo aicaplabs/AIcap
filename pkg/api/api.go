@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"crypto/rand"
 	"crypto/sha256"
 	"database/sql"
@@ -11,6 +12,7 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"time"
 
 	"aicap/pkg/auth"
 	"aicap/pkg/compliance"
@@ -19,6 +21,7 @@ import (
 	"aicap/pkg/types"
 
 	"github.com/stripe/stripe-go/v79"
+	billingportalsession "github.com/stripe/stripe-go/v79/billingportal/session"
 	"github.com/stripe/stripe-go/v79/checkout/session"
 	"github.com/stripe/stripe-go/v79/webhook"
 )
@@ -56,9 +59,22 @@ func RegisterRoutes(mux *http.ServeMux, db *sql.DB, isCloudSaaS bool) {
 	}
 
 	// --- Health --------------------------------------------------------------
-	// /healthz is used by Render/K8s liveness probes. It reports DB status
-	// without leaking any configuration details.
-	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
+	// Three endpoints, each answering a different question:
+	//
+	//   /livez   — "is the process alive?"       Always 200 if we can serve.
+	//   /readyz  — "can we serve real traffic?"  200 iff dependencies are up.
+	//   /healthz — legacy combined probe, same semantics as /readyz. Kept so
+	//              existing Render/K8s probes don't break during rollout.
+	//
+	// Splitting them matters for orchestrators: a failing /livez causes the pod
+	// to be restarted, while a failing /readyz only pulls it out of the load
+	// balancer. If a transient DB blip were wired into a liveness probe it
+	// would trigger pointless restart loops.
+	livez := func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+	}
+	readyz := func(w http.ResponseWriter, r *http.Request) {
 		status := "ok"
 		code := http.StatusOK
 		if isCloudSaaS && (db == nil || db.Ping() != nil) {
@@ -68,7 +84,10 @@ func RegisterRoutes(mux *http.ServeMux, db *sql.DB, isCloudSaaS bool) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(code)
 		json.NewEncoder(w).Encode(map[string]string{"status": status})
-	})
+	}
+	mux.HandleFunc("/livez", livez)
+	mux.HandleFunc("/readyz", readyz)
+	mux.HandleFunc("/healthz", readyz)
 
 	// --- Local scan (dev only) ----------------------------------------------
 	// /api/scan runs a filesystem scan on the server's working directory. That
@@ -196,31 +215,164 @@ func RegisterRoutes(mux *http.ServeMux, db *sql.DB, isCloudSaaS bool) {
 		if commitSha == "" {
 			commitSha = "local-dev-uncommitted"
 		}
-		annexIVMarkdown := compliance.GenerateAnnexIVMarkdown(bom)
 
-		h := sha256.New()
-		h.Write([]byte(commitSha))
-		h.Write(bomJSON)
-		cryptoHash := hex.EncodeToString(h.Sum(nil))
+		// Wave 6: build the Article 9 risk register alongside the Annex IV
+		// markdown. The register is JSON-serialised into proof_drills.
+		// risk_register_state so dashboards can render it without re-
+		// parsing the markdown blob, and so the saved register is the
+		// canonical evidence of "what we knew at scan time" for auditors.
+		//
+		// Wave 7f: enrich the register with live OSV.dev CVE/GHSA data
+		// before persisting. We bound the call with a hard timeout
+		// derived from the request context so a slow OSV doesn't block
+		// the whole save-proof flow — when the budget runs out, the
+		// findings still land, just without the LiveVulnIDs decoration.
+		// We also re-render Annex IV from a BOM whose dependencies have
+		// been updated with the enriched register so the markdown table
+		// surfaces the same CVE list that the JSONB carries.
+		register := compliance.ComputeRiskRegister(bom)
+		if osvClient := compliance.NewOSVClient(); osvClient != nil {
+			ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+			compliance.EnrichWithOSV(ctx, &register, bom, osvClient)
+			cancel()
+		}
+		registerJSON, err := json.Marshal(register)
+		if err != nil {
+			httplog.From(r.Context()).Error("marshal risk register failed", slog.Any("error", err))
+			http.Error(w, "Internal server error", http.StatusInternalServerError)
+			return
+		}
+		annexIVMarkdown := compliance.GenerateAnnexIVMarkdownWithRegister(bom, register)
 
 		// Use sql.NullString so that an empty userID (possible during a
 		// schema-migration race where the middleware ran on old code) is stored
 		// as NULL rather than rejected as an invalid UUID literal.
 		nullableUserID := sql.NullString{String: userID, Valid: userID != ""}
 
-		_, err = db.Exec(`
-			INSERT INTO proof_drills (project_id, user_id, commit_sha, ai_bom_json, annex_iv_markdown, crypto_hash)
-			VALUES ($1, $2, $3, $4, $5, $6)`,
-			projectID, nullableUserID, commitSha, bomJSON, annexIVMarkdown, cryptoHash,
-		)
+		// --- Hash-chain anchoring (Wave 4) -----------------------------------
+		// Each row's crypto_hash mixes in the previous row's crypto_hash so
+		// tampering with any historical row breaks the link to every later row.
+		// Verification (GET /api/verify-chain) walks the chain and reports the
+		// first divergence.
+		//
+		// We need the read-of-tail and the insert to be one atomic step,
+		// otherwise two concurrent inserts for the same user would both
+		// observe the same prev_hash and produce a forked chain. A
+		// transaction-scoped advisory lock keyed on user_id serialises
+		// inserts per user without holding a row lock (the genesis case has
+		// no row to lock) and without serialising across users.
+		tx, err := db.BeginTx(r.Context(), nil)
 		if err != nil {
+			httplog.From(r.Context()).Error("begin tx failed", slog.Any("error", err))
+			http.Error(w, "Internal server error", http.StatusInternalServerError)
+			return
+		}
+		defer tx.Rollback()
+
+		if userID != "" {
+			// hashtextextended produces a stable bigint from the user_id string,
+			// so concurrent inserts for the same user serialise on the same
+			// advisory-lock key. Different users get different keys and run
+			// in parallel.
+			if _, err := tx.ExecContext(r.Context(),
+				`SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`,
+				userID); err != nil {
+				httplog.From(r.Context()).Error("advisory lock failed", slog.Any("error", err))
+				http.Error(w, "Internal server error", http.StatusInternalServerError)
+				return
+			}
+		}
+
+		// --- Idempotency short-circuit (Wave 6) ------------------------------
+		// A CI retry sends save-proof again with the same (user_id, commit_sha).
+		// Without this check we'd append a second row whose ai_bom may differ
+		// slightly (timestamps, file ordering) — duplicate audit entries with
+		// different crypto_hashes is exactly the corruption we want to avoid.
+		// Migration 00011 enforces uniqueness at the DB level as a backstop.
+		// Inside the advisory lock so concurrent retries can't both pass the
+		// check and race on the INSERT.
+		if userID != "" {
+			var existing string
+			err := tx.QueryRowContext(r.Context(),
+				`SELECT crypto_hash FROM proof_drills
+				 WHERE user_id = $1 AND commit_sha = $2`,
+				userID, commitSha).Scan(&existing)
+			if err == nil {
+				// Found — return the canonical hash without appending.
+				if err := tx.Commit(); err != nil {
+					httplog.From(r.Context()).Error("commit idempotent tx failed", slog.Any("error", err))
+				}
+				httplog.From(r.Context()).Info("save-proof idempotent retry",
+					slog.String("user_id", userID), slog.String("commit_sha", commitSha))
+				w.WriteHeader(http.StatusOK)
+				json.NewEncoder(w).Encode(map[string]any{
+					"status":     "success",
+					"cryptoHash": existing,
+					"idempotent": true,
+				})
+				return
+			}
+			if err != sql.ErrNoRows {
+				httplog.From(r.Context()).Error("idempotency check failed", slog.Any("error", err))
+				http.Error(w, "Internal server error", http.StatusInternalServerError)
+				return
+			}
+		}
+
+		var prevHash sql.NullString
+		if userID != "" {
+			err = tx.QueryRowContext(r.Context(), `
+				SELECT crypto_hash FROM proof_drills
+				WHERE user_id = $1
+				ORDER BY created_at DESC
+				LIMIT 1`, userID).Scan(&prevHash)
+			if err != nil && err != sql.ErrNoRows {
+				httplog.From(r.Context()).Error("read chain head failed", slog.Any("error", err))
+				http.Error(w, "Internal server error", http.StatusInternalServerError)
+				return
+			}
+		}
+
+		// Hash on Postgres's canonical JSONB text, not Go's json.Marshal output.
+		// Postgres normalises JSONB on storage (whitespace, key ordering) so the
+		// bytes returned by SELECT differ from the bytes we just marshaled. If
+		// we hashed the raw Go output here, every verify-chain run would report
+		// a payload-tamper false positive on its own writes. Round-tripping
+		// through `$1::jsonb::text` returns exactly what verify-chain will read.
+		var canonicalBOM string
+		if err := tx.QueryRowContext(r.Context(),
+			`SELECT $1::jsonb::text`, string(bomJSON),
+		).Scan(&canonicalBOM); err != nil {
+			httplog.From(r.Context()).Error("canonicalise bom failed", slog.Any("error", err))
+			http.Error(w, "Internal server error", http.StatusInternalServerError)
+			return
+		}
+
+		cryptoHash := computeChainHash(commitSha, []byte(canonicalBOM), prevHash.String)
+
+		if _, err := tx.ExecContext(r.Context(), `
+			INSERT INTO proof_drills (project_id, user_id, commit_sha, ai_bom_json, risk_register_state, annex_iv_markdown, crypto_hash, prev_hash)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+			projectID, nullableUserID, commitSha, bomJSON, registerJSON, annexIVMarkdown, cryptoHash,
+			sql.NullString{String: prevHash.String, Valid: prevHash.Valid},
+		); err != nil {
 			httplog.From(r.Context()).Error("insert proof_drill failed", slog.Any("error", err))
 			http.Error(w, "Internal server error", http.StatusInternalServerError)
 			return
 		}
 
+		if err := tx.Commit(); err != nil {
+			httplog.From(r.Context()).Error("commit tx failed", slog.Any("error", err))
+			http.Error(w, "Internal server error", http.StatusInternalServerError)
+			return
+		}
+
 		w.WriteHeader(http.StatusCreated)
-		json.NewEncoder(w).Encode(map[string]string{"status": "success"})
+		json.NewEncoder(w).Encode(map[string]any{
+			"status":     "success",
+			"cryptoHash": cryptoHash,
+			"idempotent": false,
+		})
 	}
 	if isCloudSaaS {
 		mux.HandleFunc("/api/save-proof", withCORS(auth.RequireAPIKey(db, saveProof)))
@@ -349,6 +501,122 @@ func RegisterRoutes(mux *http.ServeMux, db *sql.DB, isCloudSaaS bool) {
 		mux.HandleFunc("/api/proof", proofHandler)
 	}
 
+	// --- Chain verification -------------------------------------------------
+	// /api/verify-chain walks the caller's proof_drills in chronological order
+	// and reports the first row whose stored crypto_hash diverges from the
+	// hash recomputed from (commit_sha, ai_bom_json, prev_hash). A clean
+	// chain returns {ok: true, length: N}; a tampered chain returns
+	// {ok: false, brokenAt: <hash>, reason: "..."}.
+	//
+	// Tamper modes detected:
+	//   * Row payload edited in place (recomputed hash != stored hash).
+	//   * Row's prev_hash points at something other than the actual previous
+	//     row's hash (chain reordering / row deletion).
+	//
+	// Rows written before migration 00010 have prev_hash = NULL even when
+	// they aren't the genesis. We tolerate one NULL prev_hash at the chain
+	// start and flag any subsequent NULL as a deletion.
+	verifyChainHandler := func(w http.ResponseWriter, r *http.Request) {
+		cors(w, r)
+		w.Header().Set("Access-Control-Allow-Methods", "GET, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+		if r.Method == http.MethodOptions {
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		if db == nil {
+			http.Error(w, "Database not configured", http.StatusInternalServerError)
+			return
+		}
+
+		// Cast to ::text so the bytes we hash are exactly what the insert
+		// path canonicalised through Postgres — see the matching cast in
+		// save-proof. Without this, JSONB normalisation makes every verify
+		// look like a tamper.
+		var rows *sql.Rows
+		var err error
+		if isCloudSaaS {
+			userID := auth.UserID(r)
+			rows, err = db.QueryContext(r.Context(), `
+				SELECT commit_sha, ai_bom_json::text, crypto_hash, prev_hash
+				FROM proof_drills
+				WHERE user_id = $1
+				ORDER BY created_at ASC, id ASC`, userID)
+		} else {
+			rows, err = db.QueryContext(r.Context(), `
+				SELECT commit_sha, ai_bom_json::text, crypto_hash, prev_hash
+				FROM proof_drills
+				ORDER BY created_at ASC, id ASC`)
+		}
+		if err != nil {
+			httplog.From(r.Context()).Error("verify-chain query failed", slog.Any("error", err))
+			http.Error(w, "Internal server error", http.StatusInternalServerError)
+			return
+		}
+		defer rows.Close()
+
+		var (
+			length         int
+			expectedPrev   string
+			seenFirst      bool
+		)
+		for rows.Next() {
+			var commitSha, storedHash string
+			var bomJSON []byte
+			var prevHash sql.NullString
+			if err := rows.Scan(&commitSha, &bomJSON, &storedHash, &prevHash); err != nil {
+				httplog.From(r.Context()).Error("verify-chain scan failed", slog.Any("error", err))
+				http.Error(w, "Internal server error", http.StatusInternalServerError)
+				return
+			}
+			length++
+
+			// Chain-link check (skip for the first row's NULL prev_hash, which
+			// is either the genesis or a pre-Wave-4 legacy row).
+			if seenFirst {
+				if !prevHash.Valid {
+					json.NewEncoder(w).Encode(map[string]any{
+						"ok":       false,
+						"brokenAt": storedHash,
+						"reason":   "prev_hash is NULL on a non-genesis row (possible deletion)",
+						"length":   length,
+					})
+					return
+				}
+				if prevHash.String != expectedPrev {
+					json.NewEncoder(w).Encode(map[string]any{
+						"ok":       false,
+						"brokenAt": storedHash,
+						"reason":   "prev_hash does not match previous row's crypto_hash",
+						"length":   length,
+					})
+					return
+				}
+			}
+
+			// Per-row payload check.
+			recomputed := computeChainHash(commitSha, bomJSON, prevHash.String)
+			if recomputed != storedHash {
+				json.NewEncoder(w).Encode(map[string]any{
+					"ok":       false,
+					"brokenAt": storedHash,
+					"reason":   "stored crypto_hash does not match recomputed hash (row payload altered)",
+					"length":   length,
+				})
+				return
+			}
+
+			expectedPrev = storedHash
+			seenFirst = true
+		}
+		json.NewEncoder(w).Encode(map[string]any{"ok": true, "length": length})
+	}
+	if isCloudSaaS {
+		mux.HandleFunc("/api/verify-chain", withCORS(auth.RequireSupabaseJWT(verifyChainHandler)))
+	} else {
+		mux.HandleFunc("/api/verify-chain", verifyChainHandler)
+	}
+
 	// --- Stripe checkout ----------------------------------------------------
 	// /api/create-checkout-session derives user_id + email from the verified
 	// Supabase JWT; the request body is ignored for those fields so a caller
@@ -414,6 +682,92 @@ func RegisterRoutes(mux *http.ServeMux, db *sql.DB, isCloudSaaS bool) {
 		json.NewEncoder(w).Encode(map[string]string{"sessionId": checkoutSession.ID, "url": checkoutSession.URL})
 	}
 	mux.HandleFunc("/api/create-checkout-session", withCORS(auth.RequireSupabaseJWT(checkoutHandler)))
+
+	// --- Stripe customer portal (Wave 7e) -----------------------------------
+	// /api/customer-portal redirects an authenticated Pro user into Stripe's
+	// hosted billing portal so they can self-serve cancellations, payment-
+	// method updates, and invoice history. Without this, every billing
+	// change is a support ticket — and the analysis flagged it as the
+	// last meaningful Phase 7 gap.
+	//
+	// Contract:
+	//   * Reads stripe_customer_id from api_keys for the authenticated
+	//     userID. If the row has no Stripe customer (free tier, no
+	//     checkout completed), 400 — there's nothing to manage.
+	//   * Creates a fresh BillingPortal session per call. Stripe's
+	//     portal sessions are short-lived and single-use; we don't
+	//     cache them.
+	//   * Returns {url}. Frontend window.location.hrefs to it.
+	customerPortalHandler := func(w http.ResponseWriter, r *http.Request) {
+		cors(w, r)
+		w.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+		if r.Method == http.MethodOptions {
+			return
+		}
+		if r.Method != http.MethodPost {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		if !isCloudSaaS || db == nil {
+			http.Error(w, "SaaS features require cloud deployment and database connection", http.StatusInternalServerError)
+			return
+		}
+
+		userID := auth.UserID(r)
+		var customerID string
+		err := db.QueryRow(
+			`SELECT COALESCE(stripe_customer_id, '') FROM api_keys WHERE user_id = $1`,
+			userID,
+		).Scan(&customerID)
+		if err == sql.ErrNoRows || customerID == "" {
+			// Free-tier users (or Pro users where the webhook hasn't
+			// fired yet) have no Stripe customer to manage. The frontend
+			// should hide the button in this state, but the API guards
+			// it too in case the UI gets out of sync.
+			http.Error(w, "No Stripe customer associated with this account. Subscribe to Pro first.", http.StatusBadRequest)
+			return
+		}
+		if err != nil {
+			httplog.From(r.Context()).Error("read stripe_customer_id failed",
+				slog.String("user_id", userID), slog.Any("error", err))
+			http.Error(w, "Internal server error", http.StatusInternalServerError)
+			return
+		}
+
+		stripe.Key = os.Getenv("STRIPE_SECRET_KEY")
+		if stripe.Key == "" {
+			httplog.From(r.Context()).Error("STRIPE_SECRET_KEY not set")
+			http.Error(w, "Stripe secret key not configured", http.StatusInternalServerError)
+			return
+		}
+
+		// Default the return-URL to the frontend root. Stripe sends the
+		// user back here after they finish in the portal; if the
+		// VITE_FRONTEND_URL allowlist is comma-separated, we use the
+		// first entry just like /api/create-checkout-session does.
+		frontendURL := os.Getenv("VITE_FRONTEND_URL")
+		if frontendURL == "" {
+			frontendURL = "http://localhost:5173"
+		} else if idx := strings.Index(frontendURL, ","); idx >= 0 {
+			frontendURL = strings.TrimSpace(frontendURL[:idx])
+		}
+
+		params := &stripe.BillingPortalSessionParams{
+			Customer:  stripe.String(customerID),
+			ReturnURL: stripe.String(frontendURL + "/"),
+		}
+		portalSession, err := billingportalsession.New(params)
+		if err != nil {
+			httplog.From(r.Context()).Error("creating Stripe billing portal session",
+				slog.String("user_id", userID), slog.Any("error", err))
+			http.Error(w, "Unable to open billing portal. Please try again.", http.StatusBadGateway)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]string{"url": portalSession.URL})
+	}
+	mux.HandleFunc("/api/customer-portal", withCORS(auth.RequireSupabaseJWT(customerPortalHandler)))
 
 	// --- Stripe webhook -----------------------------------------------------
 	// The webhook itself is authenticated by Stripe's signature, not by us.
@@ -531,12 +885,23 @@ func RegisterRoutes(mux *http.ServeMux, db *sql.DB, isCloudSaaS bool) {
 				break
 			}
 			logger.Info("subscription deleted", slog.String("stripe_customer_id", cid))
-			result, err := db.Exec("DELETE FROM api_keys WHERE stripe_customer_id = $1", cid)
+			// Soft revoke (Wave 6): downgrade tier but keep the row + token_hash.
+			// If the customer re-subscribes their existing CI key still works
+			// once the next checkout.session.completed flips tier back to 'pro';
+			// hard-deleting forced an awkward rotate-after-resubscribe flow.
+			// The rate-limiter (rolling 30-day count, 10 free) automatically
+			// applies the moment tier flips back to 'free', so the user
+			// loses Pro privileges immediately.
+			result, err := db.Exec(
+				`UPDATE api_keys SET subscription_tier = 'free' WHERE stripe_customer_id = $1`,
+				cid)
 			if err != nil {
-				logger.Error("revoke API key", slog.String("stripe_customer_id", cid), slog.Any("error", err))
+				logger.Error("revoke (soft)", slog.String("stripe_customer_id", cid), slog.Any("error", err))
 			} else {
 				rows, _ := result.RowsAffected()
-				logger.Info("API keys revoked", slog.String("stripe_customer_id", cid), slog.Int64("count", rows))
+				logger.Info("API key downgraded to free",
+					slog.String("stripe_customer_id", cid),
+					slog.Int64("count", rows))
 			}
 
 		case "invoice.payment_failed":
@@ -551,8 +916,12 @@ func RegisterRoutes(mux *http.ServeMux, db *sql.DB, isCloudSaaS bool) {
 				slog.String("invoice_id", invoice.ID),
 				slog.Int64("attempt", invoice.AttemptCount))
 			if cid != "" && invoice.AttemptCount >= 3 {
-				logger.Warn("max retry attempts reached — revoking API key", slog.String("stripe_customer_id", cid))
-				db.Exec("DELETE FROM api_keys WHERE stripe_customer_id = $1", cid)
+				// Soft revoke (Wave 6): see customer.subscription.deleted comment.
+				logger.Warn("max retry attempts reached — downgrading to free",
+					slog.String("stripe_customer_id", cid))
+				db.Exec(
+					`UPDATE api_keys SET subscription_tier = 'free' WHERE stripe_customer_id = $1`,
+					cid)
 			}
 
 		case "customer.subscription.updated":
@@ -561,9 +930,38 @@ func RegisterRoutes(mux *http.ServeMux, db *sql.DB, isCloudSaaS bool) {
 				logger.Error("parse subscription update event", slog.Any("error", err))
 				break
 			}
+			cid := customerID(sub.Customer)
 			logger.Info("subscription updated",
-				slog.String("stripe_customer_id", customerID(sub.Customer)),
+				slog.String("stripe_customer_id", cid),
 				slog.String("status", string(sub.Status)))
+			// Wave 6: reflect Stripe's status into subscription_tier so users
+			// whose card declined or who are mid-cancellation lose Pro access
+			// without us needing a separate cron. Pro applies only while the
+			// subscription is `active` or `trialing`. Other terminal states
+			// (`past_due`, `canceled`, `incomplete_expired`, `unpaid`,
+			// `paused`) downgrade to free; the rate-limiter takes effect
+			// on the next save-proof.
+			if cid == "" {
+				break
+			}
+			tier := "free"
+			switch sub.Status {
+			case stripe.SubscriptionStatusActive, stripe.SubscriptionStatusTrialing:
+				tier = "pro"
+			}
+			if _, err := db.Exec(
+				`UPDATE api_keys SET subscription_tier = $1 WHERE stripe_customer_id = $2`,
+				tier, cid); err != nil {
+				logger.Error("reflect subscription status",
+					slog.String("stripe_customer_id", cid),
+					slog.String("status", string(sub.Status)),
+					slog.Any("error", err))
+			} else {
+				logger.Info("subscription tier updated from Stripe status",
+					slog.String("stripe_customer_id", cid),
+					slog.String("status", string(sub.Status)),
+					slog.String("tier", tier))
+			}
 
 		default:
 			logger.Info("unhandled event type")
@@ -920,5 +1318,23 @@ func customerID(c *stripe.Customer) string {
 		return ""
 	}
 	return c.ID
+}
+
+// computeChainHash is the canonical crypto_hash formula for proof_drills.
+// Used by both save-proof (at insert) and verify-chain (at verify); they
+// must match exactly or every row looks tampered.
+//
+// When prevHash == "" we fall through to the pre-Wave-4 formula
+// (sha256(commit_sha || ai_bom_json)), so rows written before migration
+// 00010 still hash-match. New non-genesis rows mix in the previous
+// crypto_hash so any historical edit breaks every later link.
+func computeChainHash(commitSha string, bomJSON []byte, prevHash string) string {
+	h := sha256.New()
+	h.Write([]byte(commitSha))
+	h.Write(bomJSON)
+	if prevHash != "" {
+		h.Write([]byte(prevHash))
+	}
+	return hex.EncodeToString(h.Sum(nil))
 }
 

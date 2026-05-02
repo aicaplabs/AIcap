@@ -776,7 +776,10 @@ func TestComplianceGenerateAnnexIVMarkdown_ContainsAllSections(t *testing.T) {
 		"Licensing Compliance Summary",
 		"Hardware Requirements",
 		"Risk Management",
-		"Automated Risk Register",
+		// Wave 6 renamed this section from "Automated Risk Register"
+		// to "Cross-Referenced Risk Register" — the new heading
+		// reflects the OWASP ML Top 10 / MITRE ATLAS cross-reference.
+		"Risk Register",
 		"Policy-as-Code Compliance",
 		"CI/CD Pipeline Controls",
 		"Human Oversight",
@@ -788,6 +791,147 @@ func TestComplianceGenerateAnnexIVMarkdown_ContainsAllSections(t *testing.T) {
 	for _, section := range requiredSections {
 		if !strings.Contains(md, section) {
 			t.Errorf("Annex IV markdown missing required section: '%s'", section)
+		}
+	}
+}
+
+// Wave 7b: when a FinOps finding carries an EstimatedCost, Annex IV
+// § 2(c) must render the dollar figure inline AND a BOM-level summary
+// line. When no findings carry a cost, the legacy listing format
+// renders without the cost line — auditors see the GPU warning but
+// no fictional dollar figure.
+func TestAnnexIV_FinOpsCost_Rendered(t *testing.T) {
+	bom := types.AIBOM{
+		ProjectName: "x",
+		FinOps: []types.FinOpsFinding{{
+			Resource: "infra.tf",
+			Severity: "Warning",
+			Description: "AWS instance detected.",
+			EstimatedCost: &types.FinOpsCost{
+				InstanceFamily: "p4d.",
+				Cloud:          "AWS",
+				HourlyUSDLow:   32.77,
+				HourlyUSDHigh:  32.77,
+				MonthlyUSDLow:  23922.10,
+				MonthlyUSDHigh: 23922.10,
+				Description:    "NVIDIA A100 40GB GPU (p4d.24xlarge)",
+			},
+		}},
+		FinOpsCostEstimate: &types.FinOpsCostSummary{
+			TotalMonthlyUSDLow:   23922.10,
+			TotalMonthlyUSDHigh:  23922.10,
+			Currency:             "USD",
+			AssumedHoursPerMonth: 730,
+			Disclaimer:           "Estimates assume 730 hours/month at on-demand list pricing.",
+			CostedFindings:       1,
+			UncostedFindings:     0,
+		},
+	}
+	md := compliance.GenerateAnnexIVMarkdown(bom)
+
+	for _, want := range []string{
+		"Estimated cost:",
+		"$32.77",
+		"$23922", // formatted as $%.0f, no decimal
+		"AWS family `p4d.`",
+		"Estimated total monthly cost:",
+		"1 costed finding(s)",
+		"Assumptions:",
+	} {
+		if !strings.Contains(md, want) {
+			t.Errorf("§ 2(c) cost rendering missing %q\nfull md:\n%s", want, md)
+		}
+	}
+}
+
+// Wave 7b: a FinOps finding without EstimatedCost (typical for k8s
+// nvidia.com/gpu requests with no instance-type hint) must NOT emit
+// the cost line — we only show dollars we can justify.
+func TestAnnexIV_FinOpsCost_OmittedWhenNotEstimated(t *testing.T) {
+	bom := types.AIBOM{
+		ProjectName: "x",
+		FinOps: []types.FinOpsFinding{{
+			Resource:    "deploy.yaml",
+			Severity:    "Warning",
+			Description: "Expensive GPU requested without MIG.",
+		}},
+	}
+	md := compliance.GenerateAnnexIVMarkdown(bom)
+	if strings.Contains(md, "Estimated cost:") {
+		t.Errorf("Annex IV emitted Estimated cost line for an uncostable finding\n%s", md)
+	}
+}
+
+// Wave 7a: when bom.Governance is empty (legacy scans, or projects with
+// no detectable IaC governance signals) the Annex IV § 4 sub-sections
+// must keep the original `[REQUIRES MANUAL INPUT]` placeholders so
+// auditors aren't misled into thinking we found controls we didn't.
+func TestAnnexIV_GovernancePlaceholders_WhenEmpty(t *testing.T) {
+	md := compliance.GenerateAnnexIVMarkdown(types.AIBOM{ProjectName: "x"})
+	for _, want := range []string{
+		"Human-in-the-loop (HITL) Controls:** `[REQUIRES MANUAL INPUT]`",
+		"Training Data Provenance:** `[REQUIRES MANUAL INPUT]`",
+		"Bias Monitoring:** `[REQUIRES MANUAL INPUT]`",
+		"[REQUIRES MANUAL INPUT: Detail prompt injection mitigation strategy]",
+	} {
+		if !strings.Contains(md, want) {
+			t.Errorf("empty Governance: Annex IV missing placeholder %q", want)
+		}
+	}
+}
+
+// Wave 7a: when bom.Governance carries signals, the corresponding
+// Annex IV sub-section must surface the evidence count + per-signal
+// description, and the placeholder must NOT be present (otherwise we
+// double-render and confuse auditors).
+func TestAnnexIV_GovernanceEvidence_WhenPopulated(t *testing.T) {
+	bom := types.AIBOM{
+		ProjectName: "x",
+		Governance: types.GovernanceTelemetry{
+			HITL: []types.GovernanceSignal{
+				{Source: "k8s manifest", Location: "deploy.yaml",
+					Evidence: "review-queue", Description: "HITL evidence."},
+			},
+			TrainingData: []types.GovernanceSignal{
+				{Source: "dvc", Location: "data.dvc",
+					Evidence: "data.dvc", Description: "DVC tracks training data."},
+			},
+			BiasMonitoring: []types.GovernanceSignal{
+				{Source: "python import", Location: "guard.py",
+					Evidence: "fairlearn", Description: "Fairlearn imported."},
+			},
+			PromptInjectionDefenses: []types.GovernanceSignal{
+				{Source: "python import", Location: "guard.py",
+					Evidence: "lakera", Description: "Lakera imported."},
+			},
+		},
+	}
+	md := compliance.GenerateAnnexIVMarkdown(bom)
+
+	// Each populated section must surface its description.
+	for _, want := range []string{
+		"HITL evidence.",
+		"DVC tracks training data.",
+		"Fairlearn imported.",
+		// 3(c) prompt-injection block lists evidence inline.
+		"Prompt-injection defences detected",
+		"`lakera`",
+	} {
+		if !strings.Contains(md, want) {
+			t.Errorf("populated Governance: Annex IV missing evidence %q", want)
+		}
+	}
+
+	// And the placeholder strings for HITL / training data / bias /
+	// prompt-injection MUST be gone — auditors shouldn't see both.
+	for _, banned := range []string{
+		"Human-in-the-loop (HITL) Controls:** `[REQUIRES MANUAL INPUT]`",
+		"Training Data Provenance:** `[REQUIRES MANUAL INPUT]`",
+		"Bias Monitoring:** `[REQUIRES MANUAL INPUT]`",
+		"[REQUIRES MANUAL INPUT: Detail prompt injection mitigation strategy]",
+	} {
+		if strings.Contains(md, banned) {
+			t.Errorf("populated Governance: placeholder leaked: %q", banned)
 		}
 	}
 }
@@ -1006,6 +1150,50 @@ func TestComplianceEnrichWithOWASPRisks_NoDuplicateAnnotations(t *testing.T) {
 	count := strings.Count(bom.Dependencies[0].Description, "OWASP")
 	if count > 1 {
 		t.Errorf("Expected no duplicate OWASP annotations, got %d occurrences", count)
+	}
+}
+
+// W9d: when bom.Policy.Purpose is set, Annex IV Section 1 must render
+// the declared purpose text instead of the [REQUIRES MANUAL INPUT] placeholder.
+func TestAnnexIV_IntendedPurpose_RenderedFromPolicy(t *testing.T) {
+	bom := types.AIBOM{
+		ProjectName: "my-service",
+		Policy: &types.PolicyConfig{
+			Purpose: "Customer churn prediction for EU retail analytics",
+		},
+	}
+	md := compliance.GenerateAnnexIVMarkdown(bom)
+
+	if !strings.Contains(md, "Customer churn prediction for EU retail analytics") {
+		t.Error("Annex IV Section 1 did not render the purpose from bom.Policy.Purpose")
+	}
+	if strings.Contains(md, "REQUIRES MANUAL INPUT: Describe the exact purpose") {
+		t.Error("Annex IV Section 1 still contains placeholder when Policy.Purpose is set")
+	}
+}
+
+// W9d: when bom.Policy is nil the original placeholder must remain so
+// auditors see an explicit prompt rather than a silently empty field.
+func TestAnnexIV_IntendedPurpose_PlaceholderWhenNoPolicy(t *testing.T) {
+	md := compliance.GenerateAnnexIVMarkdown(types.AIBOM{ProjectName: "x"})
+	if !strings.Contains(md, "REQUIRES MANUAL INPUT: Describe the exact purpose") {
+		t.Error("Annex IV Section 1 missing placeholder when bom.Policy is nil")
+	}
+}
+
+// W9d: LoadPolicyConfig must parse the purpose key from .aicap.yml.
+func TestLoadPolicyConfig_ParsesPurpose(t *testing.T) {
+	content := "purpose: Fraud detection for EU financial services\nmax_risk_level: High\n"
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, ".aicap.yml"), []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+	policy := compliance.LoadPolicyConfig(dir)
+	if policy == nil {
+		t.Fatal("Expected policy to be loaded")
+	}
+	if policy.Purpose != "Fraud detection for EU financial services" {
+		t.Errorf("Purpose = %q, want %q", policy.Purpose, "Fraud detection for EU financial services")
 	}
 }
 
