@@ -70,6 +70,10 @@ type AIBOM struct {
 	PolicyViolations   []PolicyViolation   `json:"policyViolations,omitempty"`
 	Governance         GovernanceTelemetry `json:"governance,omitempty"`
 	Compliance         string              `json:"complianceStatus"`
+	// Policy carries the parsed .aicap.yml so downstream consumers
+	// (Annex IV generator, API save-proof handler) can read declared
+	// metadata like Purpose without re-parsing the file.
+	Policy *PolicyConfig `json:"policy,omitempty"`
 }
 
 // GovernanceTelemetry collects evidence of compliance controls discovered
@@ -114,6 +118,10 @@ type PolicyConfig struct {
 	BlockOnHighRisk bool     `json:"blockOnHighRisk"`
 	RequireLicenses bool     `json:"requireLicenses"`
 	AllowedLicenses []string `json:"allowedLicenses"`
+	// Purpose is the free-text intended purpose of the AI system,
+	// used to auto-populate Annex IV Section 1 instead of the
+	// [REQUIRES MANUAL INPUT] placeholder.
+	Purpose string `json:"purpose,omitempty"`
 }
 
 // Map of known AI libraries and their assumed regulatory risk (MVP level)

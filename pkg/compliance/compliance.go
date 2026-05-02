@@ -32,7 +32,11 @@ func GenerateAnnexIVMarkdownWithRegister(bom types.AIBOM, register types.RiskReg
 	sb.WriteString(fmt.Sprintf("- **Version / Commit SHA:** `%s`\n", bom.CommitSha))
 	sb.WriteString(fmt.Sprintf("- **Total Files Scanned:** %d\n", bom.ScannedFiles))
 	sb.WriteString(fmt.Sprintf("- **AI Components Detected:** %d\n", len(bom.Dependencies)))
-	sb.WriteString("- **Intended Purpose:** `[REQUIRES MANUAL INPUT: Describe the exact purpose of this AI system]`\n\n")
+	if bom.Policy != nil && bom.Policy.Purpose != "" {
+		sb.WriteString(fmt.Sprintf("- **Intended Purpose:** %s\n\n", bom.Policy.Purpose))
+	} else {
+		sb.WriteString("- **Intended Purpose:** `[REQUIRES MANUAL INPUT: Describe the exact purpose of this AI system]`\n\n")
+	}
 
 	// Section 2: Architecture & Components
 	sb.WriteString("## 2. System Architecture & Components (Annex IV, Section 2)\n\n")
@@ -315,6 +319,8 @@ func LoadPolicyConfig(scanDir string) *types.PolicyConfig {
 				policy.BlockOnHighRisk = val == "true"
 			case "require_licenses":
 				policy.RequireLicenses = val == "true"
+			case "purpose":
+				policy.Purpose = val
 			}
 		}
 	}

@@ -281,6 +281,7 @@ func PerformScan(scanDir string) types.AIBOM {
 	// Load .aicap.yml policy if it exists in the scanned directory
 	policy := compliance.LoadPolicyConfig(scanDir)
 	if policy != nil {
+		bom.Policy = policy
 		bom.PolicyViolations = compliance.EvaluatePolicy(policy, bom)
 		if len(bom.PolicyViolations) > 0 {
 			for _, v := range bom.PolicyViolations {
