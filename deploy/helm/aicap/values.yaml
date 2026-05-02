@@ -106,10 +106,10 @@ readinessProbe:
 config:
   # CORS allowlist for the frontend; comma-separated when multiple.
   viteFrontendUrl: "https://aicap.example.com"
-  # "true" lets the pod run embedded migrations on startup. Recommended
-  # for a single-tenant self-host; set to "false" if you run migrations
+  # true lets the pod run embedded migrations on startup. Recommended
+  # for a single-tenant self-host; set to false if you run migrations
   # via a separate Job (see migrationJob below).
-  runMigrations: "true"
+  runMigrations: true
   # "info" or "debug". slog handler honours this.
   logLevel: "info"
   # HTTP listen port inside the container — must match service.targetPort.
