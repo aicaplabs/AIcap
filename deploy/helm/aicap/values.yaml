@@ -1,0 +1,166 @@
+# Default values for the aicap chart.
+# Override only what you need with `-f my-values.yaml` or `--set`.
+
+image:
+  repository: ghcr.io/istrategeorge/aicap
+  tag: ""              # defaults to .Chart.AppVersion when empty
+  pullPolicy: IfNotPresent
+  pullSecrets: []
+
+replicaCount: 2
+
+# Pod-level settings
+podAnnotations: {}
+podLabels: {}
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 65532
+  runAsGroup: 65532
+  fsGroup: 65532
+  seccompProfile:
+    type: RuntimeDefault
+
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop:
+      - ALL
+
+# Resources tuned for a small fleet of CI scanners hitting save-proof.
+# Scale up replicaCount + memory if you start ingesting CycloneDX SBOMs
+# from large repos.
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    cpu: 500m
+    memory: 512Mi
+
+service:
+  type: ClusterIP
+  port: 80
+  targetPort: 8080
+  annotations: {}
+
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+    # cert-manager.io/cluster-issuer: letsencrypt-prod
+    # nginx.ingress.kubernetes.io/proxy-body-size: 10m
+  hosts:
+    - host: aicap.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+    # - secretName: aicap-tls
+    #   hosts:
+    #     - aicap.example.com
+
+# ServiceAccount — created by default. Disable to bind your own.
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+# Horizontal Pod Autoscaler — disabled by default; enable for prod fleets.
+autoscaling:
+  enabled: false
+  minReplicas: 2
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 70
+  targetMemoryUtilizationPercentage: 80
+
+# PodDisruptionBudget — recommended in production.
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1
+
+# Probes — wired to the Wave-4 /livez vs /readyz split.
+# /livez always returns 200 if the process can serve, so a failing DB
+# does not trigger pod restarts. /readyz returns 503 when the DB ping
+# fails so the orchestrator pulls the pod out of the LB.
+livenessProbe:
+  httpGet:
+    path: /livez
+    port: http
+  initialDelaySeconds: 5
+  periodSeconds: 10
+  timeoutSeconds: 3
+  failureThreshold: 3
+
+readinessProbe:
+  httpGet:
+    path: /readyz
+    port: http
+  initialDelaySeconds: 5
+  periodSeconds: 5
+  timeoutSeconds: 3
+  failureThreshold: 3
+
+# Application configuration. Anything here lands in the ConfigMap.
+# Secrets (DB URLs, Stripe keys, JWT secret) go in `secrets` below.
+config:
+  # CORS allowlist for the frontend; comma-separated when multiple.
+  viteFrontendUrl: "https://aicap.example.com"
+  # true lets the pod run embedded migrations on startup. Recommended
+  # for a single-tenant self-host; set to false if you run migrations
+  # via a separate Job (see migrationJob below).
+  runMigrations: true
+  # "info" or "debug". slog handler honours this.
+  logLevel: "info"
+  # HTTP listen port inside the container — must match service.targetPort.
+  port: "8080"
+  # Stripe price ID for the Pro subscription. Defaults to AIcap's
+  # canonical Pro price; override for a private deployment.
+  stripePriceId: "price_1Pdtg1E5iL2Zl43n5G4YhI9t"
+
+# Secrets management.
+#
+# Two modes are supported:
+#
+#   1. Inline (default) — set values here and the chart creates a Secret
+#      with them. Convenient for `helm install --set ...` but the values
+#      land in the release manifest. NOT recommended for prod.
+#
+#   2. External — set `secrets.existingSecret` to the name of a Secret
+#      you manage out-of-band (sealed-secrets, external-secrets, vault,
+#      etc). The chart reads the documented keys from it instead.
+secrets:
+  existingSecret: ""   # if set, the chart skips creating a Secret
+  # Inline mode: provide the actual values.
+  supabaseDbUrl: ""           # postgres://user:pass@host:5432/dbname?sslmode=require
+  supabaseJwtSecret: ""       # HS256 secret used by Supabase to sign session JWTs
+  stripeSecretKey: ""         # sk_live_… or sk_test_…
+  stripeWebhookSecret: ""     # whsec_…
+
+# Optional one-shot migration Job.
+# Set runMigrations=false above and migrationJob.enabled=true to run
+# migrations as a Helm pre-upgrade Job rather than on pod startup.
+migrationJob:
+  enabled: false
+  backoffLimit: 2
+  ttlSecondsAfterFinished: 600
+
+nodeSelector: {}
+tolerations: []
+affinity: {}
+
+# Topology spread — recommended in multi-AZ clusters.
+topologySpreadConstraints: []
+
+# Extra environment variables passed to the container, e.g. for
+# OSV configuration:
+#   - name: AICAP_OSV_TIMEOUT_MS
+#     value: "3000"
+#   - name: AICAP_OSV_DISABLED
+#     value: "false"
+extraEnv: []
+
+# Additional volumes / volumeMounts (e.g. for a writable /tmp under
+# readOnlyRootFilesystem). The chart already mounts an emptyDir at /tmp.
+extraVolumes: []
+extraVolumeMounts: []

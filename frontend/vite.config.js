@@ -8,4 +8,12 @@ export default defineConfig({
     react(),
     tailwindcss(),
   ],
+  // Vitest config — kept in this file so `npm test` picks it up without
+  // a separate vitest.config. jsdom gives us window/document for RTL;
+  // setupFiles wires @testing-library/jest-dom matchers.
+  test: {
+    environment: 'jsdom',
+    globals: true,
+    setupFiles: ['./src/test/setup.js'],
+  },
 })

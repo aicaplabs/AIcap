@@ -1,0 +1,23 @@
+apiVersion: v2
+name: aicap
+description: |
+  AIcap — Continuous AI-BOM & Compliance Scanner for the EU AI Act.
+  Self-hosted deployment of the AIcap backend (Go HTTP API + embedded
+  migration runner). Connects to an external PostgreSQL (managed
+  Supabase, RDS, Cloud SQL, or in-cluster) via SUPABASE_DB_URL.
+type: application
+version: 0.2.0
+appVersion: "1.1.0"
+home: https://github.com/istrategeorge/AIcap
+sources:
+  - https://github.com/istrategeorge/AIcap
+keywords:
+  - ai-bom
+  - compliance
+  - eu-ai-act
+  - sbom
+  - finops
+  - annex-iv
+maintainers:
+  - name: George Istrate
+    url: https://github.com/istrategeorge
