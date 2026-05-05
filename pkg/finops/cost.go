@@ -21,7 +21,11 @@ package finops
 import (
 	_ "embed"
 	"encoding/json"
+	"fmt"
+	"io"
+	"net/http"
 	"strings"
+	"time"
 
 	"aicap/pkg/types"
 )
@@ -56,16 +60,23 @@ var (
 )
 
 func init() {
+	// Fail-soft: leave catalog empty on parse error so LookupGPUCost
+	// returns nil rather than crashing the server at boot.
+	_ = parseCatalog(costsJSON)
+}
+
+// parseCatalog replaces the package-level catalog and meta from raw JSON.
+// Shared by init (embedded file) and LoadCatalogFromURL (remote fetch).
+func parseCatalog(data []byte) error {
 	raw := map[string]json.RawMessage{}
-	if err := json.Unmarshal(costsJSON, &raw); err != nil {
-		// Fail-soft: leave catalog empty; LookupGPUCost will return nil
-		// and the system reports "no cost estimate available" rather
-		// than crashing the server at boot.
-		return
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return fmt.Errorf("parse gpu costs catalog: %w", err)
 	}
+	newMeta := catalogMeta{}
 	if metaRaw, ok := raw["_meta"]; ok {
-		_ = json.Unmarshal(metaRaw, &meta)
+		_ = json.Unmarshal(metaRaw, &newMeta)
 	}
+	newCatalog := map[string]map[string]catalogEntry{}
 	for cloud, body := range raw {
 		if strings.HasPrefix(cloud, "_") {
 			continue
@@ -74,8 +85,36 @@ func init() {
 		if err := json.Unmarshal(body, &entries); err != nil {
 			continue
 		}
-		catalog[strings.ToLower(cloud)] = entries
+		newCatalog[strings.ToLower(cloud)] = entries
 	}
+	catalog = newCatalog
+	meta = newMeta
+	return nil
+}
+
+// LoadCatalogFromURL fetches a gpu_costs.json-format catalog from url and
+// replaces the embedded catalog on success. On any failure (unreachable host,
+// non-200, parse error) it returns an error and leaves the embedded catalog
+// intact so FinOps cost estimates degrade gracefully rather than disappear.
+// A blank url is a no-op. Intended to be called once at server startup.
+func LoadCatalogFromURL(url string) error {
+	if url == "" {
+		return nil
+	}
+	client := &http.Client{Timeout: 5 * time.Second}
+	resp, err := client.Get(url) //nolint:noctx
+	if err != nil {
+		return fmt.Errorf("fetch gpu costs catalog: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("fetch gpu costs catalog: status %d", resp.StatusCode)
+	}
+	data, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return fmt.Errorf("read gpu costs catalog: %w", err)
+	}
+	return parseCatalog(data)
 }
 
 // AssumedHoursPerMonth returns the constant we multiply hourly rates
