@@ -18,9 +18,21 @@ export default function ProDashboard({
   historyData,
   onHistoryRowClick,
   historicalProof,
+  trialDaysRemaining,
 }) {
   return (
     <div className="space-y-6 max-w-5xl mx-auto animate-in fade-in duration-500">
+      {trialDaysRemaining > 0 && (
+        <div className="bg-amber-50 border border-amber-200 rounded-lg px-4 py-3 flex items-center justify-between">
+          <span className="text-amber-800 text-sm">
+            <strong>{trialDaysRemaining} day{trialDaysRemaining !== 1 ? 's' : ''} left</strong> in your free trial
+          </span>
+          <a href="#pricing" className="text-amber-700 text-sm font-medium underline hover:text-amber-900">
+            Subscribe to Pro →
+          </a>
+        </div>
+      )}
+
       {/* Welcome banner + CI snippet + KeyVault */}
       <div className="bg-indigo-600 p-8 rounded-xl shadow-sm text-white flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
         <div className="max-w-2xl">

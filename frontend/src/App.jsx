@@ -144,6 +144,7 @@ export default function App() {
         accessToken,
         hasKey: !!me.hasKey,
         tier: me.tier || 'free',
+        trialDaysRemaining: me.trialDaysRemaining ?? null,
       };
 
       if (sessionId) {
@@ -281,8 +282,11 @@ export default function App() {
           <CheckoutProcessing />
         ) : !session ? (
           <LandingAuth />
-        ) : session.tier !== 'pro' ? (
-          <Paywall onTokenRefresh={onTokenRefresh} />
+        ) : session.tier !== 'pro' && !(session.trialDaysRemaining > 0) ? (
+          <Paywall
+            onTokenRefresh={onTokenRefresh}
+            trialExpired={session.trialDaysRemaining === 0}
+          />
         ) : (
           <ProDashboard
             session={session}
@@ -293,6 +297,7 @@ export default function App() {
             historyData={historyData}
             onHistoryRowClick={fetchHistoricalProof}
             historicalProof={historicalProof}
+            trialDaysRemaining={session.trialDaysRemaining}
           />
         )
       ) : (
