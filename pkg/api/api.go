@@ -179,20 +179,34 @@ func RegisterRoutes(mux *http.ServeMux, db *sql.DB, isCloudSaaS bool) {
 		// no reset job, no writer contention on UPDATE, and no race where a
 		// scan is recorded but the counter increment fails.
 		if tier == "free" {
-			var recent int
+			// Trial users (trial_ends_at > NOW()) get Pro-equivalent access for
+			// the trial window; only apply the quota to post-trial free accounts.
+			var onTrial bool
 			if err := db.QueryRow(
-				`SELECT COUNT(*) FROM proof_drills
-				 WHERE user_id = $1 AND created_at > NOW() - INTERVAL '30 days'`,
+				`SELECT COALESCE(trial_ends_at > NOW(), false) FROM api_keys WHERE user_id = $1`,
 				userID,
-			).Scan(&recent); err != nil {
-				httplog.From(r.Context()).Error("rate-limit check failed",
+			).Scan(&onTrial); err != nil && err != sql.ErrNoRows {
+				httplog.From(r.Context()).Error("trial check failed",
 					slog.String("user_id", userID), slog.Any("error", err))
 				http.Error(w, "Internal server error", http.StatusInternalServerError)
 				return
 			}
-			if recent >= 10 {
-				http.Error(w, "Payment Required: Free tier limit of 10 cloud syncs per 30 days reached. Please upgrade to Pro.", http.StatusPaymentRequired)
-				return
+			if !onTrial {
+				var recent int
+				if err := db.QueryRow(
+					`SELECT COUNT(*) FROM proof_drills
+					 WHERE user_id = $1 AND created_at > NOW() - INTERVAL '30 days'`,
+					userID,
+				).Scan(&recent); err != nil {
+					httplog.From(r.Context()).Error("rate-limit check failed",
+						slog.String("user_id", userID), slog.Any("error", err))
+					http.Error(w, "Internal server error", http.StatusInternalServerError)
+					return
+				}
+				if recent >= 10 {
+					http.Error(w, "Payment Required: Free tier limit of 10 cloud syncs per 30 days reached. Please upgrade to Pro.", http.StatusPaymentRequired)
+					return
+				}
 			}
 		}
 
@@ -1037,9 +1051,11 @@ func RegisterRoutes(mux *http.ServeMux, db *sql.DB, isCloudSaaS bool) {
 		// a Pro marker (NULL hash), we fill it in and preserve the 'pro'
 		// tier; if there's no row at all, the INSERT path creates a 'free'
 		// key for a user who is generating before paying.
+		// trial_ends_at is only set on INSERT (new users) — existing rows keep
+		// whatever trial window (or NULL) they already have.
 		if _, err := db.Exec(
-			`INSERT INTO api_keys (user_id, token_hash, subscription_tier)
-			 VALUES ($1, $2, 'free')
+			`INSERT INTO api_keys (user_id, token_hash, subscription_tier, trial_ends_at)
+			 VALUES ($1, $2, 'free', NOW() + INTERVAL '14 days')
 			 ON CONFLICT (user_id) DO UPDATE
 			 SET token_hash = EXCLUDED.token_hash`,
 			userID, hashed,
@@ -1237,10 +1253,11 @@ func RegisterRoutes(mux *http.ServeMux, db *sql.DB, isCloudSaaS bool) {
 
 		var tokenHash sql.NullString
 		var tier sql.NullString
+		var trialEndsAt sql.NullTime
 		err := db.QueryRow(
-			`SELECT token_hash, subscription_tier FROM api_keys WHERE user_id = $1`,
+			`SELECT token_hash, subscription_tier, trial_ends_at FROM api_keys WHERE user_id = $1`,
 			userID,
-		).Scan(&tokenHash, &tier)
+		).Scan(&tokenHash, &tier, &trialEndsAt)
 		if err != nil && err != sql.ErrNoRows {
 			logger.Error("me lookup", slog.Any("error", err))
 			http.Error(w, "Internal server error", http.StatusInternalServerError)
@@ -1251,10 +1268,18 @@ func RegisterRoutes(mux *http.ServeMux, db *sql.DB, isCloudSaaS bool) {
 		if tier.Valid && tier.String != "" {
 			resolvedTier = tier.String
 		}
-		json.NewEncoder(w).Encode(map[string]any{
+		resp := map[string]any{
 			"hasKey": tokenHash.Valid && tokenHash.String != "",
 			"tier":   resolvedTier,
-		})
+		}
+		if trialEndsAt.Valid {
+			remaining := int(time.Until(trialEndsAt.Time).Hours() / 24)
+			if remaining < 0 {
+				remaining = 0
+			}
+			resp["trialDaysRemaining"] = remaining
+		}
+		json.NewEncoder(w).Encode(resp)
 	}
 	mux.HandleFunc("/api/me", withCORS(auth.RequireSupabaseJWT(meHandler)))
 }

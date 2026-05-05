@@ -1338,3 +1338,124 @@ func TestStripeWebhook_SubscriptionDeleted_SoftRevoke(t *testing.T) {
 		t.Errorf("token_hash = %q, must be preserved through soft revoke", tokenHash)
 	}
 }
+
+// TestGenerateKey_SetsTrial verifies that a brand-new free-tier user gets a
+// 14-day trial window recorded in trial_ends_at when they first call
+// /api/generate-key.
+func TestGenerateKey_SetsTrial(t *testing.T) {
+	srv, db := setup(t)
+	userID := "00000000-0000-0000-0000-000000000f01"
+	tok := mintJWT(t, userID, "trial@example.com")
+
+	req, _ := http.NewRequest(http.MethodPost, srv.URL+"/api/generate-key", nil)
+	req.Header.Set("Authorization", "Bearer "+tok)
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("generate-key: %v", err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("status = %d, want 201", resp.StatusCode)
+	}
+
+	var trialEndsAt sql.NullTime
+	db.QueryRow(`SELECT trial_ends_at FROM api_keys WHERE user_id = $1`, userID).Scan(&trialEndsAt)
+	if !trialEndsAt.Valid {
+		t.Fatal("trial_ends_at is NULL — trial was not set on generate-key")
+	}
+	daysUntil := int(time.Until(trialEndsAt.Time).Hours() / 24)
+	if daysUntil < 13 || daysUntil > 14 {
+		t.Errorf("trial_ends_at gives %d days remaining, want 13–14", daysUntil)
+	}
+}
+
+// TestSaveProof_TrialBypassesQuota verifies that a free-tier user on an active
+// trial can save more than 10 proof drills (the normal free-tier quota).
+func TestSaveProof_TrialBypassesQuota(t *testing.T) {
+	srv, db := setup(t)
+	userID := "00000000-0000-0000-0000-000000000f02"
+	token := seedAPIKey(t, db, userID, "free")
+
+	// Set an active trial for this user.
+	if _, err := db.Exec(
+		`UPDATE api_keys SET trial_ends_at = NOW() + INTERVAL '7 days' WHERE user_id = $1`, userID,
+	); err != nil {
+		t.Fatalf("set trial: %v", err)
+	}
+
+	post := func(commit string) int {
+		b, _ := json.Marshal(types.AIBOM{ProjectName: "trial-demo", CommitSha: commit})
+		req, _ := http.NewRequest(http.MethodPost, srv.URL+"/api/save-proof", bytes.NewReader(b))
+		req.Header.Set("Authorization", "Bearer "+token)
+		req.Header.Set("Content-Type", "application/json")
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatalf("post: %v", err)
+		}
+		resp.Body.Close()
+		return resp.StatusCode
+	}
+
+	// 15 scans — all should succeed because the trial bypasses the free-tier quota.
+	for i := 0; i < 15; i++ {
+		if got := post(fmt.Sprintf("trial-sha-%d", i)); got != 201 {
+			t.Fatalf("scan %d: status = %d, want 201 (trial should bypass quota)", i+1, got)
+		}
+	}
+}
+
+// TestMe_ReturnsTrial verifies that /api/me includes trialDaysRemaining when
+// a trial is active and omits the field when no trial is set.
+func TestMe_ReturnsTrial(t *testing.T) {
+	srv, db := setup(t)
+	userID := "00000000-0000-0000-0000-000000000f03"
+	tok := mintJWT(t, userID, "me-trial@example.com")
+
+	getMe := func() map[string]any {
+		req, _ := http.NewRequest(http.MethodGet, srv.URL+"/api/me", nil)
+		req.Header.Set("Authorization", "Bearer "+tok)
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatalf("GET /api/me: %v", err)
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("/api/me status = %d, want 200", resp.StatusCode)
+		}
+		var body map[string]any
+		json.NewDecoder(resp.Body).Decode(&body)
+		return body
+	}
+
+	// No row yet — me returns defaults with no trialDaysRemaining.
+	me := getMe()
+	if _, ok := me["trialDaysRemaining"]; ok {
+		t.Error("/api/me should omit trialDaysRemaining when no row exists")
+	}
+
+	// Create a row with an active trial.
+	seedAPIKey(t, db, userID, "free")
+	db.Exec(`UPDATE api_keys SET trial_ends_at = NOW() + INTERVAL '10 days' WHERE user_id = $1`, userID)
+
+	me = getMe()
+	days, ok := me["trialDaysRemaining"]
+	if !ok {
+		t.Fatal("/api/me missing trialDaysRemaining for active trial")
+	}
+	// JSON numbers decode as float64.
+	if d := int(days.(float64)); d < 9 || d > 10 {
+		t.Errorf("trialDaysRemaining = %d, want 9–10", d)
+	}
+
+	// Expired trial (trial_ends_at in the past) → trialDaysRemaining == 0.
+	db.Exec(`UPDATE api_keys SET trial_ends_at = NOW() - INTERVAL '1 day' WHERE user_id = $1`, userID)
+	me = getMe()
+	days, ok = me["trialDaysRemaining"]
+	if !ok {
+		t.Fatal("/api/me missing trialDaysRemaining for expired trial")
+	}
+	if d := int(days.(float64)); d != 0 {
+		t.Errorf("expired trial: trialDaysRemaining = %d, want 0", d)
+	}
+}
