@@ -2,6 +2,8 @@ package finops
 
 import (
 	"math"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
@@ -138,5 +140,75 @@ func TestEstimateBOMCost_AllUncosted_StillReturnsSummary(t *testing.T) {
 	}
 	if est.Disclaimer == "" {
 		t.Error("Disclaimer is empty even on uncosted summary")
+	}
+}
+
+// LoadCatalogFromURL tests use httptest.NewServer so no real network is needed.
+
+func TestLoadCatalogFromURL_Empty(t *testing.T) {
+	if err := LoadCatalogFromURL(""); err != nil {
+		t.Errorf("empty url: expected nil error, got %v", err)
+	}
+	// Embedded catalog must still work.
+	if got := LookupGPUCost(`instance_type = "p4d.24xlarge"`); got == nil {
+		t.Error("embedded catalog broken after no-op LoadCatalogFromURL")
+	}
+}
+
+func TestLoadCatalogFromURL_RemoteCatalog(t *testing.T) {
+	// Restore embedded catalog when the test finishes so later tests are unaffected.
+	t.Cleanup(func() { _ = parseCatalog(costsJSON) })
+
+	const remotePrefix = "remote_test_gpu."
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		// Minimal catalog with a single recognisable prefix.
+		w.Write([]byte(`{
+			"_meta": {"assumed_hours_per_month": 730, "disclaimer": "remote test"},
+			"aws": {
+				"` + remotePrefix + `": {
+					"hourly_usd_low": 5.00,
+					"hourly_usd_high": 10.00,
+					"description": "Remote test GPU"
+				}
+			}
+		}`))
+	}))
+	defer srv.Close()
+
+	if err := LoadCatalogFromURL(srv.URL); err != nil {
+		t.Fatalf("LoadCatalogFromURL: %v", err)
+	}
+
+	// The remote catalog's prefix should now match.
+	got := LookupGPUCost("vm_size = \"" + remotePrefix + "8xlarge\"")
+	if got == nil {
+		t.Fatal("LookupGPUCost returned nil after loading remote catalog")
+	}
+	if got.Cloud != "AWS" {
+		t.Errorf("Cloud = %q, want AWS", got.Cloud)
+	}
+	if got.HourlyUSDLow != 5.00 {
+		t.Errorf("HourlyUSDLow = %v, want 5.00", got.HourlyUSDLow)
+	}
+
+	// Embedded prefixes (e.g. p4d.) should no longer be in the catalog since
+	// the remote payload replaced it entirely.
+	if got2 := LookupGPUCost(`instance_type = "p4d.24xlarge"`); got2 != nil {
+		t.Error("old embedded prefix still matches after remote catalog replaced it")
+	}
+}
+
+func TestLoadCatalogFromURL_Unreachable(t *testing.T) {
+	t.Cleanup(func() { _ = parseCatalog(costsJSON) })
+
+	err := LoadCatalogFromURL("http://127.0.0.1:1") // nothing listening on port 1
+	if err == nil {
+		t.Fatal("expected error for unreachable URL, got nil")
+	}
+
+	// Embedded catalog must still work after the failed fetch.
+	if got := LookupGPUCost(`instance_type = "p4d.24xlarge"`); got == nil {
+		t.Error("embedded catalog broken after failed LoadCatalogFromURL")
 	}
 }

@@ -17,6 +17,7 @@ import (
 
 	"aicap/pkg/api"
 	"aicap/pkg/compliance"
+	"aicap/pkg/finops"
 	"aicap/pkg/httplog"
 	"aicap/pkg/migrate"
 	"aicap/pkg/scanner"
@@ -162,6 +163,19 @@ func main() {
 		}
 		slog.Warn("SUPABASE_DB_URL not set; running without a database")
 		db = nil
+	}
+
+	// AICAP_GPU_COSTS_URL: optional remote catalog that replaces the embedded
+	// gpu_costs.json. Allows pricing data to be refreshed without a binary
+	// release. Falls back to the embedded catalog on any fetch or parse error.
+	if gpuCostsURL := os.Getenv("AICAP_GPU_COSTS_URL"); gpuCostsURL != "" {
+		if err := finops.LoadCatalogFromURL(gpuCostsURL); err != nil {
+			slog.Warn("remote GPU cost catalog unavailable, using embedded catalog",
+				slog.String("url", gpuCostsURL),
+				slog.Any("error", err))
+		} else {
+			slog.Info("loaded remote GPU cost catalog", slog.String("url", gpuCostsURL))
+		}
 	}
 
 	mux := http.NewServeMux()
