@@ -75,7 +75,12 @@ ${deps.length > 0
 ${finOps.length > 0
   ? renderFinOpsBlock(finOps, scanData.finOpsCostEstimate)
   : 'No specific hardware constraints or GPU requests detected in infrastructure manifests.'}
-
+${(scanData.scannedImages?.length ?? 0) > 0 ? `
+### 2(d) Container Images Inspected (Daemonless Layer Scan)
+${scanData.scannedImages.map(img =>
+  `- **${img.reference}** [${img.source}] — ${img.layers} layer(s), ${img.findingCount} AI finding(s); digest \`${img.digest || '(unknown digest)'}\``
+).join('\n')}
+` : ''}
 ## 3. Continuous Risk Management (Article 9 & Annex IV, Section 4)
 **Current Automated Posture:** ${scanData.complianceStatus}
 

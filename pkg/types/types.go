@@ -74,6 +74,24 @@ type AIBOM struct {
 	// (Annex IV generator, API save-proof handler) can read declared
 	// metadata like Purpose without re-parsing the file.
 	Policy *PolicyConfig `json:"policy,omitempty"`
+	// ScannedImages records container images inspected for this BOM
+	// (Wave 10). Findings extracted from layers land in Dependencies
+	// like any other source — this slice is the provenance index so
+	// Annex IV can attribute each finding to the image it came from.
+	ScannedImages []ScannedImage `json:"scannedImages,omitempty"`
+}
+
+// ScannedImage is one container image whose layers were walked
+// daemonlessly (registry pull or docker-save tarball). Source is
+// "registry" or "tarball"; Digest is the content-addressable sha256
+// of the image manifest so downstream tooling can verify what was
+// actually inspected even if the tag later mutates.
+type ScannedImage struct {
+	Reference    string `json:"reference"`
+	Digest       string `json:"digest,omitempty"`
+	Source       string `json:"source"`
+	Layers       int    `json:"layers"`
+	FindingCount int    `json:"findingCount"`
 }
 
 // GovernanceTelemetry collects evidence of compliance controls discovered

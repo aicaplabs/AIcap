@@ -862,6 +862,54 @@ func TestAnnexIV_FinOpsCost_OmittedWhenNotEstimated(t *testing.T) {
 	}
 }
 
+// Wave 10: when --image / --image-tar populates bom.ScannedImages, the
+// Annex IV renderer surfaces a new § 2(d) "Container Images Inspected"
+// sub-section so auditors can attribute findings back to layers. When
+// the slice is empty the sub-section must be omitted entirely (no
+// orphan header).
+func TestAnnexIV_ScannedImages_RenderedWhenPresent(t *testing.T) {
+	bom := types.AIBOM{
+		ProjectName: "x",
+		ScannedImages: []types.ScannedImage{
+			{
+				Reference:    "ghcr.io/foo/bar:1.2",
+				Digest:       "sha256:abc123def456",
+				Source:       "registry",
+				Layers:       4,
+				FindingCount: 2,
+			},
+			{
+				Reference:    "/tmp/local-build.tar",
+				Source:       "tarball",
+				Layers:       1,
+				FindingCount: 0,
+			},
+		},
+	}
+	md := compliance.GenerateAnnexIVMarkdown(bom)
+	for _, want := range []string{
+		"### 2(d) Container Images Inspected",
+		"ghcr.io/foo/bar:1.2",
+		"[registry]",
+		"[tarball]",
+		"4 layer(s)",
+		"2 AI finding(s)",
+		"sha256:abc123def456",
+		"(unknown digest)", // for the tarball with empty digest
+	} {
+		if !strings.Contains(md, want) {
+			t.Errorf("§ 2(d) rendering missing %q\nfull md:\n%s", want, md)
+		}
+	}
+}
+
+func TestAnnexIV_ScannedImages_OmittedWhenEmpty(t *testing.T) {
+	md := compliance.GenerateAnnexIVMarkdown(types.AIBOM{ProjectName: "x"})
+	if strings.Contains(md, "2(d) Container Images") {
+		t.Errorf("Annex IV emitted § 2(d) header with no scanned images\n%s", md)
+	}
+}
+
 // Wave 7a: when bom.Governance is empty (legacy scans, or projects with
 // no detectable IaC governance signals) the Annex IV § 4 sub-sections
 // must keep the original `[REQUIRES MANUAL INPUT]` placeholders so

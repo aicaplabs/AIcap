@@ -78,6 +78,17 @@ func init() {
 	}
 }
 
+// LookupLibrary returns the catalog metadata for a known AI library
+// keyed by its lowercased package name (PyPI name, npm name, etc.).
+// The returned bool is false when the library is not in the catalog.
+// Exported so out-of-package scanners (e.g. pkg/imagescan, which walks
+// container-image layers) can cross-reference findings against the same
+// curated set of AI dependencies the directory scanner uses.
+func LookupLibrary(name string) (types.LibraryMeta, bool) {
+	meta, ok := targetAILibraries[strings.ToLower(name)]
+	return meta, ok
+}
+
 func PerformScan(scanDir string) types.AIBOM {
 	bom := types.AIBOM{
 		ProjectName:  filepath.Base(scanDir),
