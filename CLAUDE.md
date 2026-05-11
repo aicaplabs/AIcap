@@ -641,6 +641,129 @@ GitHub Marketplace listing curation, and a public docs site
 (currently the README is the docs). Phase 5 still has the EU hosting
 migration off Render queued. Both are next-wave Tier D.
 
+### Wave 10 (shipped — daemonless container-image filesystem scanning)
+
+Phase 2 had been stuck at ~92% because the scanner only walked the
+filesystem of the repo it was invoked on. A CI pipeline that built a
+container image then pushed it got zero scanning on the image
+contents — exactly where the production-deployed model weights and
+pip-installed AI deps actually live. Wave 10 closes that gap with a
+daemonless image scanner.
+
+- **`pkg/imagescan/`** — new package, ~340 LoC over `imagescan.go`
+  (entry points) + `layer.go` (per-entry detection). Uses
+  `github.com/google/go-containerregistry` v0.21.5, the same
+  daemonless image-handling library Helm / ko / Skaffold use.
+  - `ScanImage(ctx, ref)` — pulls a registry image via
+    `remote.Image` with `authn.DefaultKeychain` (picks up
+    `docker login` state, GitHub Actions `GITHUB_TOKEN`-derived
+    ghcr.io creds, GCR / ACR / ECR helpers on PATH).
+  - `ScanTarball(ctx, path)` — reads a `docker save` tarball via
+    `tarball.ImageFromPath`, passing nil tag so the first image
+    in the manifest is used (the typical single-tag save shape).
+  - `ScanRefs(ctx, refs, tarballs)` — CLI-facing aggregator that
+    returns flattened dependencies + per-image `ScannedImage`
+    provenance entries + per-image error strings. Best-effort
+    contract: one unreachable registry does not suppress
+    findings from a sibling tarball.
+
+- **Per-layer detection** in `scanLayer`. Walks each uncompressed
+  layer tar (`v1.Layer.Uncompressed()`) and matches three kinds of
+  entry:
+  - **Model weight files** — same extension set as the directory
+    scanner (`.safetensors`, `.onnx`, `.pt`, `.h5`, `.gguf`, `.bin`,
+    `.tflite`, `.pb`, `.mlmodel`, `.ckpt`) plus the sentinel
+    filenames `pytorch_model.bin` and `model.safetensors`. Header
+    only, body never read (model files are huge; the path + size
+    is what auditors care about).
+  - **Python `dist-info/METADATA`** — PEP 566 RFC-822-style header
+    block. Name + Version parsed from the first blank-line-delimited
+    block (multi-line continuations don't apply to these fields).
+    Cross-referenced against `scanner.LookupLibrary` (new exported
+    helper) so `numpy` doesn't fire but `openai` / `torch` do.
+  - **Node `node_modules/.../package.json`** — top-level Name +
+    Version. Tolerant lookup (`extractStringField`) rather than
+    `encoding/json` because some real-world package.json files
+    have trailing-comma quirks from build tools. Root-level
+    package.json is deliberately ignored — the directory scanner
+    already catches it, and double-reporting would inflate counts.
+
+- **Safety rails** for hostile layers:
+  - `maxMetadataBytes = 256 KB` cap on any entry we choose to read
+    into memory. Model files are never read; oversized "METADATA"
+    or "package.json" entries are skipped.
+  - Whiteout markers (`.wh.*`) are explicitly ignored — they're
+    docker/OCI deletion sentinels, not content.
+  - Per-layer error from `layer.Uncompressed()` returns ignored:
+    one malformed layer doesn't crash the whole scan.
+
+- **`types.AIBOM.ScannedImages []ScannedImage`** — new optional
+  field carrying per-image provenance: `Reference`, `Digest` (sha256
+  of the manifest), `Source` (`"registry"` or `"tarball"`), `Layers`,
+  `FindingCount`. Per-finding `Location` strings carry
+  `image#layerN:path` so an individual finding traces back to its
+  layer.
+
+- **CLI surface** — `main.go --cli` now accepts:
+  - `--image <ref>` (repeatable) — registry reference
+  - `--image-tar <path>` (repeatable) — local docker-save tarball
+  - existing `--cyclonedx` still works
+  - `parseCLIArgs` is extracted as a testable helper. Unknown flags
+    AND their next-token value are silently consumed for forward
+    compatibility — an older binary called by a newer `action.yml`
+    that passes a new flag does not abort the pipeline.
+  - Failures (unreachable registry, malformed tarball) surface as
+    `[-] Warning: container-image scan: ...` and the directory-scan
+    findings still ship.
+  - Compliance posture is re-evaluated after image findings merge,
+    so a high-risk model weight discovered in a layer flips the BOM
+    to "Action Required" the same as one on disk would.
+
+- **`pkg/scanner.LookupLibrary(name) (LibraryMeta, bool)`** — new
+  exported helper so out-of-package scanners (today: `pkg/imagescan`;
+  tomorrow: anything else that needs to cross-reference against the
+  curated AI catalog) can look up names without duplicating the
+  `libraries.json` data.
+
+- **Annex IV § 2(d) "Container Images Inspected (Daemonless Layer
+  Scan)"** — new sub-section in `compliance.GenerateAnnexIVMarkdownWithRegister`
+  and the frontend mirror in `lib/annexIV.js`. Lists each scanned
+  image with its source + layer count + finding count + digest.
+  Omitted entirely when `bom.ScannedImages` is empty (no orphan
+  header).
+
+- **Tests** — 27 new tests:
+  - **`pkg/imagescan/layer_test.go`** (16 tests): in-memory tar
+    fixtures via `buildTar`; AI / non-AI Python `dist-info` lookup;
+    model-weight detection per extension; sentinel filenames;
+    whiteout markers skipped; oversized METADATA entries skipped;
+    case-insensitive METADATA header keys; `parsePythonMetadata`
+    stops at first blank line; `isPythonDistInfoMetadata` and
+    `isNodePackageJSON` path predicates; `formatImageLocation`;
+    `extractStringField` whitespace tolerance.
+  - **`pkg/imagescan/imagescan_test.go`** (4 tests): end-to-end
+    `ScanTarball` round-trip via `tarball.WriteToFile` of a two-layer
+    synthetic image; non-existent path error; in-process
+    `registry.New()` httptest server proving `ScanImage` walks
+    registry-pulled layers; `ScanRefs` partial-failure contract.
+  - **`main_test.go`** (5 tests): `parseCLIArgs` directory default,
+    repeatable flags, forward-compat unknown-flag tolerance, missing
+    trailing value tolerance.
+  - **`pkg/scanner/scanner_test.go`** (2 tests): § 2(d) rendered when
+    `ScannedImages` populated, omitted when empty.
+
+- **No backwards-compatibility shims** — `bom.ScannedImages` is
+  optional (`omitempty`), the directory-scan path is unchanged,
+  and existing CI pipelines that don't pass `--image` see identical
+  behavior to v1.1.0.
+
+## Pending work (Wave 10 remainder)
+None. Phase 2 reaches ~100% with this wave. The next quarter-scale
+work is QA (EU hosting migration → Phase 5), QD (advanced FinOps:
+spot pricing, rightsizing → Phase 6), or QB+QC (SEO content +
+GitHub Marketplace listing → Phase 8). Per the user's direction,
+all three are deferred Tier D.
+
 ## Wave 3b/3c deployment checklist (run before merging to main)
 - [ ] RLS can stay as-is after Wave 3c — the frontend no longer reads `api_keys`
       directly, so `auth.uid() = user_id` row policies are sufficient as a

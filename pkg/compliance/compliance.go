@@ -124,6 +124,26 @@ func GenerateAnnexIVMarkdownWithRegister(bom types.AIBOM, register types.RiskReg
 		sb.WriteString("\n")
 	}
 
+	// 2(d) Container Image Provenance (Wave 10) — only renders when
+	// the CLI was invoked with --image / --image-tar. The list lets
+	// auditors confirm which images contributed findings; per-finding
+	// Location strings (image#layerN:path) tie individual entries in
+	// 2(a) back to the layer they came from.
+	if len(bom.ScannedImages) > 0 {
+		sb.WriteString("### 2(d) Container Images Inspected (Daemonless Layer Scan)\n")
+		for _, img := range bom.ScannedImages {
+			digest := img.Digest
+			if digest == "" {
+				digest = "(unknown digest)"
+			}
+			sb.WriteString(fmt.Sprintf(
+				"- **%s** [%s] — %d layer(s), %d AI finding(s); digest `%s`\n",
+				img.Reference, img.Source, img.Layers, img.FindingCount, digest,
+			))
+		}
+		sb.WriteString("\n")
+	}
+
 	// Section 3: Risk Management
 	sb.WriteString("## 3. Continuous Risk Management (Article 9 & Annex IV, Section 4)\n")
 	sb.WriteString(fmt.Sprintf("**Current Automated Posture:** %s\n\n", bom.Compliance))
