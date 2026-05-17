@@ -180,6 +180,13 @@ type PolicyConfig struct {
 	// used to auto-populate Annex IV Section 1 instead of the
 	// [REQUIRES MANUAL INPUT] placeholder.
 	Purpose string `json:"purpose,omitempty"`
+	// Wave 12: declarative Annex IV § 1 fields. When present in
+	// .aicap.yml they replace the [REQUIRES MANUAL INPUT] placeholders
+	// in the rendered markdown so a fully-populated policy file means
+	// the rendered Annex IV needs zero manual editing post-scan.
+	ContactEmail     string   `json:"contactEmail,omitempty"`
+	DataInputs       []string `json:"dataInputs,omitempty"`
+	TrainingDatasets []string `json:"trainingDatasets,omitempty"`
 }
 
 // Map of known AI libraries and their assumed regulatory risk (MVP level)
