@@ -107,6 +107,13 @@ func GenerateAnnexIVMarkdownWithRegister(bom types.AIBOM, register types.RiskReg
 					fin.EstimatedCost.MonthlyUSDLow, fin.EstimatedCost.MonthlyUSDHigh,
 					fin.EstimatedCost.Cloud, fin.EstimatedCost.InstanceFamily,
 				))
+				if fin.EstimatedCost.SpotMultiplier > 0 {
+					sb.WriteString(fmt.Sprintf(
+						"  - **Spot/preemptible projection:** **$%.0f–$%.0f /month** (%.0f%% of on-demand)\n",
+						fin.EstimatedCost.SpotMonthlyUSDLow, fin.EstimatedCost.SpotMonthlyUSDHigh,
+						fin.EstimatedCost.SpotMultiplier*100,
+					))
+				}
 			}
 		}
 		// BOM-level summary surfaces the aggregate, which is what the
@@ -118,8 +125,32 @@ func GenerateAnnexIVMarkdownWithRegister(bom types.AIBOM, register types.RiskReg
 				"(across %d costed finding(s); %d additional finding(s) had no catalog match).\n",
 				est.TotalMonthlyUSDLow, est.TotalMonthlyUSDHigh, est.Currency,
 				est.CostedFindings, est.UncostedFindings))
+			if est.TotalSpotMonthlyUSDLow > 0 || est.TotalSpotMonthlyUSDHigh > 0 {
+				sb.WriteString(fmt.Sprintf("**Spot/preemptible projection:** $%.0f–$%.0f %s — potential monthly savings **$%.0f–$%.0f**.\n",
+					est.TotalSpotMonthlyUSDLow, est.TotalSpotMonthlyUSDHigh, est.Currency,
+					est.SpotSavingsMonthlyUSDLow, est.SpotSavingsMonthlyUSDHigh))
+			}
 			sb.WriteString(fmt.Sprintf("_Assumptions: %d hours/month. %s_\n",
 				est.AssumedHoursPerMonth, est.Disclaimer))
+			if est.SpotDisclaimer != "" {
+				sb.WriteString(fmt.Sprintf("_Spot assumptions: %s_\n", est.SpotDisclaimer))
+			}
+		}
+		// Wave 11: rightsizing suggestions sit alongside the cost
+		// summary so the auditor reading § 2(c) sees both the current
+		// projection and the cheaper alternative in one place.
+		if len(bom.FinOpsRecommendations) > 0 {
+			sb.WriteString("\n**Rightsizing recommendations:**\n")
+			for _, rec := range bom.FinOpsRecommendations {
+				sb.WriteString(fmt.Sprintf(
+					"- **%s** (%s family `%s`) → consider %s family `%s` (%s). "+
+						"Estimated savings **$%.0f–$%.0f /month**. _%s_\n",
+					rec.Resource, rec.CurrentCloud, rec.CurrentFamily,
+					rec.CurrentCloud, rec.RecommendedFamily, rec.RecommendedAccelerator,
+					rec.EstimatedSavingsLow, rec.EstimatedSavingsHigh,
+					rec.Rationale,
+				))
+			}
 		}
 		sb.WriteString("\n")
 	}

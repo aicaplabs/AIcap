@@ -1,9 +1,15 @@
 {
   "_meta": {
-    "schema_version": 1,
+    "schema_version": 2,
     "comment": "Curated GPU instance cost catalog used by pkg/finops to attach hourly-rate ranges to detected FinOps findings. Hourly rates are USD on-demand list prices captured 2026-Q2 from each cloud's public pricing pages. Ranges reflect the spread across sizes within a family (e.g. AWS g5 covers g5.xlarge through g5.48xlarge). Auditors should treat the figure as an upper bound for budgeting — actual cost depends on size, region, savings plans, spot pricing, and reserved instances.",
     "assumed_hours_per_month": 730,
-    "disclaimer": "Estimates assume 730 hours/month of full utilization at on-demand list pricing. Actual cost depends on instance size, region, spot/savings-plan/reserved discounts, and runtime hours. Treat as a budget-planning ceiling, not a forecast."
+    "disclaimer": "Estimates assume 730 hours/month of full utilization at on-demand list pricing. Actual cost depends on instance size, region, spot/savings-plan/reserved discounts, and runtime hours. Treat as a budget-planning ceiling, not a forecast.",
+    "spot_multipliers": {
+      "aws": 0.30,
+      "azure": 0.30,
+      "gcp": 0.30
+    },
+    "spot_disclaimer": "Spot savings assume the workload tolerates preemption. Multipliers are conservative cloud-wide averages (AWS Spot, Azure Spot, GCP Spot/Preemptible) — actual discount varies 60–90% by region, family, and availability."
   },
   "aws": {
     "p3.": {

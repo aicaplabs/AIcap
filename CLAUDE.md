@@ -251,14 +251,14 @@ Production-grade Helm chart at `deploy/helm/aicap/` — `helm install aicap ./de
 - **No backwards-compatibility shims** — `bom.ScannedImages` is omitempty; pipelines without `--image` see identical behavior to v1.1.0.
 
 ## Wave 3b/3c deployment checklist (run before merging to main)
-- [ ] RLS can stay as-is after Wave 3c — the frontend no longer reads `api_keys`
+- [x] RLS can stay as-is after Wave 3c — the frontend no longer reads `api_keys`
       directly, so `auth.uid() = user_id` row policies are sufficient as a
       defense-in-depth layer. A missing SELECT policy would no longer break the UI.
-- [ ] Deploy with `RUN_MIGRATIONS=true` so 00008 + 00009 run against prod Supabase
-- [ ] Confirm `ALTER TABLE api_keys DROP COLUMN token` succeeded (migration 00009)
-- [ ] Test end-to-end: fresh signup → Stripe checkout → lands on Pro screen with
+- [x] Deploy with `RUN_MIGRATIONS=true` so 00008 + 00009 run against prod Supabase
+- [x] Confirm `ALTER TABLE api_keys DROP COLUMN token` succeeded (migration 00009)
+- [x] Test end-to-end: fresh signup → Stripe checkout → lands on Pro screen with
       key revealed → refresh page → still on Pro screen (not paywall)
-- [ ] Test webhook fallback: with `STRIPE_WEBHOOK_SECRET` unset or the webhook
+- [x] Test webhook fallback: with `STRIPE_WEBHOOK_SECRET` unset or the webhook
       disabled, complete checkout → `/api/verify-checkout` should still upgrade
       the user within ~7 s (Step 3 of the fallback chain)
 

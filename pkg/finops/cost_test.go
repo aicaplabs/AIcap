@@ -116,6 +116,70 @@ func TestEstimateBOMCost_AggregatesMonthly(t *testing.T) {
 	}
 }
 
+// Wave 11: LookupGPUCost populates spot fields when the catalog has a
+// multiplier for the matched cloud. Multiplier = 0.30 means the spot
+// figure is 30% of on-demand (i.e. 70% savings).
+func TestLookupGPUCost_PopulatesSpotFields(t *testing.T) {
+	got := LookupGPUCost(`instance_type = "p4d.24xlarge"`)
+	if got == nil {
+		t.Fatal("nil for p4d")
+	}
+	if got.SpotMultiplier <= 0 || got.SpotMultiplier >= 1 {
+		t.Errorf("SpotMultiplier = %v, want (0,1)", got.SpotMultiplier)
+	}
+	wantSpot := got.MonthlyUSDLow * got.SpotMultiplier
+	if !nearlyEqual(got.SpotMonthlyUSDLow, wantSpot) {
+		t.Errorf("SpotMonthlyUSDLow = %.2f, want %.2f", got.SpotMonthlyUSDLow, wantSpot)
+	}
+	if got.SpotMonthlyUSDLow >= got.MonthlyUSDLow {
+		t.Errorf("spot (%v) should be cheaper than on-demand (%v)", got.SpotMonthlyUSDLow, got.MonthlyUSDLow)
+	}
+}
+
+// Wave 11: EstimateBOMCost aggregates per-finding spot fields into
+// TotalSpotMonthlyUSD* and derives SpotSavingsMonthlyUSD* from the
+// difference. When no finding carries spot data the summary leaves the
+// spot fields at zero so the Annex IV renderer skips the spot line.
+func TestEstimateBOMCost_AggregatesSpot(t *testing.T) {
+	bom := types.AIBOM{FinOps: []types.FinOpsFinding{
+		{Resource: "tf1", EstimatedCost: &types.FinOpsCost{
+			MonthlyUSDLow: 100, MonthlyUSDHigh: 200,
+			SpotMultiplier: 0.30, SpotMonthlyUSDLow: 30, SpotMonthlyUSDHigh: 60,
+		}},
+		{Resource: "tf2", EstimatedCost: &types.FinOpsCost{
+			MonthlyUSDLow: 50, MonthlyUSDHigh: 50,
+			SpotMultiplier: 0.30, SpotMonthlyUSDLow: 15, SpotMonthlyUSDHigh: 15,
+		}},
+	}}
+	est := EstimateBOMCost(bom)
+	if est.TotalSpotMonthlyUSDLow != 45 || est.TotalSpotMonthlyUSDHigh != 75 {
+		t.Errorf("spot totals = %v/%v, want 45/75", est.TotalSpotMonthlyUSDLow, est.TotalSpotMonthlyUSDHigh)
+	}
+	if est.SpotSavingsMonthlyUSDLow != 105 || est.SpotSavingsMonthlyUSDHigh != 175 {
+		t.Errorf("savings = %v/%v, want 105/175",
+			est.SpotSavingsMonthlyUSDLow, est.SpotSavingsMonthlyUSDHigh)
+	}
+	if est.SpotDisclaimer == "" {
+		t.Error("SpotDisclaimer should be populated when spot data is present")
+	}
+}
+
+func TestEstimateBOMCost_NoSpotData_SkipsSpotFields(t *testing.T) {
+	bom := types.AIBOM{FinOps: []types.FinOpsFinding{
+		{Resource: "tf", EstimatedCost: &types.FinOpsCost{
+			MonthlyUSDLow: 100, MonthlyUSDHigh: 200,
+		}},
+	}}
+	est := EstimateBOMCost(bom)
+	if est.TotalSpotMonthlyUSDLow != 0 || est.TotalSpotMonthlyUSDHigh != 0 {
+		t.Errorf("spot totals should be 0 when no finding has spot data, got %v/%v",
+			est.TotalSpotMonthlyUSDLow, est.TotalSpotMonthlyUSDHigh)
+	}
+	if est.SpotDisclaimer != "" {
+		t.Errorf("SpotDisclaimer should be empty when no spot data, got %q", est.SpotDisclaimer)
+	}
+}
+
 func TestEstimateBOMCost_NoFindingsReturnsNil(t *testing.T) {
 	if got := EstimateBOMCost(types.AIBOM{}); got != nil {
 		t.Errorf("expected nil for BOM with no FinOps findings, got %#v", got)
