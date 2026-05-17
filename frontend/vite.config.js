@@ -15,5 +15,8 @@ export default defineConfig({
     environment: 'jsdom',
     globals: true,
     setupFiles: ['./src/test/setup.js'],
+    // Wave 12: keep Playwright E2E specs out of Vitest — they import
+    // @playwright/test which is incompatible with the jsdom runtime.
+    exclude: ['e2e/**', 'node_modules/**', 'dist/**'],
   },
 })
