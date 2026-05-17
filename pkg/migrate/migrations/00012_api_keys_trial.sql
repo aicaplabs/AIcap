@@ -1,0 +1,1 @@
+ALTER TABLE api_keys ADD COLUMN IF NOT EXISTS trial_ends_at TIMESTAMPTZ;
