@@ -39,6 +39,14 @@ type FinOpsCost struct {
 	MonthlyUSDLow  float64 `json:"monthlyUsdLow"`
 	MonthlyUSDHigh float64 `json:"monthlyUsdHigh"`
 	Description    string  `json:"description,omitempty"` // human-readable family description
+	// SpotMultiplier is the spot/preemptible price as a fraction of
+	// on-demand (0.30 = spot costs 30% of on-demand → 70% savings).
+	// Sourced from the catalog's _meta.spot_multipliers per cloud.
+	SpotMultiplier     float64 `json:"spotMultiplier,omitempty"`
+	SpotHourlyUSDLow   float64 `json:"spotHourlyUsdLow,omitempty"`
+	SpotHourlyUSDHigh  float64 `json:"spotHourlyUsdHigh,omitempty"`
+	SpotMonthlyUSDLow  float64 `json:"spotMonthlyUsdLow,omitempty"`
+	SpotMonthlyUSDHigh float64 `json:"spotMonthlyUsdHigh,omitempty"`
 }
 
 // FinOpsCostSummary aggregates per-finding costs into a BOM-level
@@ -57,6 +65,14 @@ type FinOpsCostSummary struct {
 	// "actual cost is probably much higher than the figure shown".
 	CostedFindings   int `json:"costedFindings"`
 	UncostedFindings int `json:"uncostedFindings"`
+	// Spot/preemptible projection (Wave 11). Computed from per-finding
+	// SpotMonthlyUSD fields. Zero when the catalog has no spot
+	// multipliers or every finding lacks a catalog match.
+	TotalSpotMonthlyUSDLow   float64 `json:"totalSpotMonthlyUsdLow,omitempty"`
+	TotalSpotMonthlyUSDHigh  float64 `json:"totalSpotMonthlyUsdHigh,omitempty"`
+	SpotSavingsMonthlyUSDLow  float64 `json:"spotSavingsMonthlyUsdLow,omitempty"`
+	SpotSavingsMonthlyUSDHigh float64 `json:"spotSavingsMonthlyUsdHigh,omitempty"`
+	SpotDisclaimer            string  `json:"spotDisclaimer,omitempty"`
 }
 
 // AIBOM represents the final Software Bill of Materials for AI
@@ -74,6 +90,48 @@ type AIBOM struct {
 	// (Annex IV generator, API save-proof handler) can read declared
 	// metadata like Purpose without re-parsing the file.
 	Policy *PolicyConfig `json:"policy,omitempty"`
+	// ScannedImages records container images inspected for this BOM
+	// (Wave 10). Findings extracted from layers land in Dependencies
+	// like any other source — this slice is the provenance index so
+	// Annex IV can attribute each finding to the image it came from.
+	ScannedImages []ScannedImage `json:"scannedImages,omitempty"`
+	// FinOpsRecommendations (Wave 11) are rightsizing suggestions:
+	// for inference-only workloads running on training-class GPUs, we
+	// recommend the matching inference-optimized family. Empty when no
+	// candidate finding matched or when training signals were detected.
+	FinOpsRecommendations []FinOpsRightsizing `json:"finOpsRecommendations,omitempty"`
+}
+
+// FinOpsRightsizing is one rightsizing suggestion for a detected
+// FinOps finding. We only emit it when (a) the BOM shows no training
+// signals (inference-only workload) and (b) the detected instance
+// family is a training-class GPU with a known inference equivalent in
+// the same cloud. Savings are computed from catalog prices and are a
+// rough ceiling — the inference family typically has less raw compute,
+// so the user must validate the swap is functionally equivalent.
+type FinOpsRightsizing struct {
+	Resource              string  `json:"resource"`
+	Location              string  `json:"location,omitempty"`
+	CurrentFamily         string  `json:"currentFamily"`
+	CurrentCloud          string  `json:"currentCloud"`
+	RecommendedFamily     string  `json:"recommendedFamily"`
+	RecommendedAccelerator string `json:"recommendedAccelerator,omitempty"`
+	Rationale             string  `json:"rationale"`
+	EstimatedSavingsLow   float64 `json:"estimatedSavingsMonthlyUsdLow"`
+	EstimatedSavingsHigh  float64 `json:"estimatedSavingsMonthlyUsdHigh"`
+}
+
+// ScannedImage is one container image whose layers were walked
+// daemonlessly (registry pull or docker-save tarball). Source is
+// "registry" or "tarball"; Digest is the content-addressable sha256
+// of the image manifest so downstream tooling can verify what was
+// actually inspected even if the tag later mutates.
+type ScannedImage struct {
+	Reference    string `json:"reference"`
+	Digest       string `json:"digest,omitempty"`
+	Source       string `json:"source"`
+	Layers       int    `json:"layers"`
+	FindingCount int    `json:"findingCount"`
 }
 
 // GovernanceTelemetry collects evidence of compliance controls discovered

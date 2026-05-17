@@ -9,6 +9,50 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 Trial of new features lands on `development` first. Once a stable
 batch is ready, it is merged to `main` and tagged.
 
+### Added — Daemonless container-image filesystem scanning (Wave 10)
+- **`pkg/imagescan/`** — walks OCI / Docker image layers without a
+  running Docker daemon, via `github.com/google/go-containerregistry`.
+  Two entry points: `ScanImage(ctx, ref)` pulls from a registry
+  (auth via `authn.DefaultKeychain`, so existing `docker login`
+  state and CI provider helpers Just Work), and
+  `ScanTarball(ctx, path)` reads a local `docker save` tarball
+  before push.
+- Per-layer detection: model-weight files (same extensions as the
+  directory scanner — `.safetensors`, `.onnx`, `.pt`, `.gguf`, …)
+  and the `pytorch_model.bin` / `model.safetensors` sentinel names;
+  Python package metadata at `*.dist-info/METADATA` (PEP 566,
+  cross-referenced against the curated AI library catalog so
+  `numpy` doesn't fire but `openai` does); Node.js package metadata
+  at `node_modules/.../package.json`. Whiteout markers ignored;
+  oversized "METADATA" entries (>256 KB) skipped to prevent
+  memory abuse from hostile layers.
+- **`scanner.LookupLibrary`** exposed for cross-package
+  cross-referencing — `pkg/imagescan` looks up Python / Node
+  package names against the same `libraries.json` catalog the
+  directory scanner uses.
+- **CLI**: `aicap --cli [dir] --image <ref> --image-tar <path>` —
+  both flags repeatable; failures (unreachable registry, malformed
+  tarball) surface as warnings without aborting the directory scan.
+  Findings merge into `bom.Dependencies` so risk register / OWASP
+  cross-referencing / Annex IV all apply transparently. Unknown
+  flags are silently dropped for forward compatibility with newer
+  `action.yml` releases.
+- **`types.AIBOM.ScannedImages`** records the inspected images
+  (reference, digest, source=registry|tarball, layer count, finding
+  count) so Annex IV § 2(d) "Container Images Inspected" attributes
+  each layer-derived finding back to its image. Per-finding
+  `Location` strings carry `image#layerN:path` for layer-level
+  traceability.
+- **Tests**: 20 new unit tests in `pkg/imagescan/` (in-memory tar
+  fixtures, AI / non-AI lookup, model-weight extensions, sentinel
+  filenames, whiteout markers, oversized-entry safety, node_modules
+  scoping, `tarball.WriteToFile` round-trip via `ScanTarball`, and
+  an in-process `registry.New()` httptest server for `ScanImage`).
+  5 new CLI-arg tests in `main_test.go` covering repeatable
+  flag parsing + forward-compat unknown-flag tolerance. 2 new
+  Annex IV § 2(d) rendering tests in `pkg/scanner/scanner_test.go`
+  (rendered when present, omitted when empty). Phase 2 → ~100%.
+
 ## [1.1.0] — 2026-05-02 — Self-host, GTM surface, billing self-serve & live CVE enrichment
 
 ### Added — Helm chart for self-hosted Enterprise tier (Wave 8a)

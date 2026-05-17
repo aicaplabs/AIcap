@@ -27,6 +27,7 @@ func EstimateBOMCost(bom types.AIBOM) *types.FinOpsCostSummary {
 		AssumedHoursPerMonth: AssumedHoursPerMonth(),
 		Disclaimer:           Disclaimer(),
 	}
+	var anySpot bool
 	for _, f := range bom.FinOps {
 		if f.EstimatedCost == nil {
 			out.UncostedFindings++
@@ -35,6 +36,16 @@ func EstimateBOMCost(bom types.AIBOM) *types.FinOpsCostSummary {
 		out.CostedFindings++
 		out.TotalMonthlyUSDLow += f.EstimatedCost.MonthlyUSDLow
 		out.TotalMonthlyUSDHigh += f.EstimatedCost.MonthlyUSDHigh
+		if f.EstimatedCost.SpotMultiplier > 0 {
+			anySpot = true
+			out.TotalSpotMonthlyUSDLow += f.EstimatedCost.SpotMonthlyUSDLow
+			out.TotalSpotMonthlyUSDHigh += f.EstimatedCost.SpotMonthlyUSDHigh
+		}
+	}
+	if anySpot {
+		out.SpotSavingsMonthlyUSDLow = out.TotalMonthlyUSDLow - out.TotalSpotMonthlyUSDLow
+		out.SpotSavingsMonthlyUSDHigh = out.TotalMonthlyUSDHigh - out.TotalSpotMonthlyUSDHigh
+		out.SpotDisclaimer = SpotDisclaimer()
 	}
 	return out
 }

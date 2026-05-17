@@ -19,12 +19,22 @@ function renderFinOpsBlock(finOps, est) {
     const base = `- **Resource:** ${f.resource}\n  - **Finding:** ${f.description}`;
     const c = f.estimatedCost;
     if (!c) return base;
-    return base + `\n  - **Estimated cost:** $${c.hourlyUsdLow.toFixed(2)}–$${c.hourlyUsdHigh.toFixed(2)} /hr → **$${Math.round(c.monthlyUsdLow)}–$${Math.round(c.monthlyUsdHigh)} /month** (${c.cloud} family \`${c.instanceFamily}\`)`;
+    let block = base + `\n  - **Estimated cost:** $${c.hourlyUsdLow.toFixed(2)}–$${c.hourlyUsdHigh.toFixed(2)} /hr → **$${Math.round(c.monthlyUsdLow)}–$${Math.round(c.monthlyUsdHigh)} /month** (${c.cloud} family \`${c.instanceFamily}\`)`;
+    if (c.spotMultiplier > 0) {
+      block += `\n  - **Spot/preemptible projection:** **$${Math.round(c.spotMonthlyUsdLow)}–$${Math.round(c.spotMonthlyUsdHigh)} /month** (${Math.round(c.spotMultiplier * 100)}% of on-demand)`;
+    }
+    return block;
   });
   if (est && (est.costedFindings > 0 || est.uncostedFindings > 0)) {
     lines.push('');
     lines.push(`**Estimated total monthly cost:** $${Math.round(est.totalMonthlyUsdLow)}–$${Math.round(est.totalMonthlyUsdHigh)} ${est.currency} (across ${est.costedFindings} costed finding(s); ${est.uncostedFindings} additional finding(s) had no catalog match).`);
+    if (est.totalSpotMonthlyUsdLow > 0 || est.totalSpotMonthlyUsdHigh > 0) {
+      lines.push(`**Spot/preemptible projection:** $${Math.round(est.totalSpotMonthlyUsdLow)}–$${Math.round(est.totalSpotMonthlyUsdHigh)} ${est.currency} — potential monthly savings **$${Math.round(est.spotSavingsMonthlyUsdLow)}–$${Math.round(est.spotSavingsMonthlyUsdHigh)}**.`);
+    }
     lines.push(`_Assumptions: ${est.assumedHoursPerMonth} hours/month. ${est.disclaimer}_`);
+    if (est.spotDisclaimer) {
+      lines.push(`_Spot assumptions: ${est.spotDisclaimer}_`);
+    }
   }
   return lines.join('\n');
 }
@@ -75,7 +85,12 @@ ${deps.length > 0
 ${finOps.length > 0
   ? renderFinOpsBlock(finOps, scanData.finOpsCostEstimate)
   : 'No specific hardware constraints or GPU requests detected in infrastructure manifests.'}
-
+${(scanData.scannedImages?.length ?? 0) > 0 ? `
+### 2(d) Container Images Inspected (Daemonless Layer Scan)
+${scanData.scannedImages.map(img =>
+  `- **${img.reference}** [${img.source}] — ${img.layers} layer(s), ${img.findingCount} AI finding(s); digest \`${img.digest || '(unknown digest)'}\``
+).join('\n')}
+` : ''}
 ## 3. Continuous Risk Management (Article 9 & Annex IV, Section 4)
 **Current Automated Posture:** ${scanData.complianceStatus}
 

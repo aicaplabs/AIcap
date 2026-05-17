@@ -18,6 +18,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -260,6 +261,125 @@ func TestSaveProof_FreeTierQuota(t *testing.T) {
 	}
 	if got := post("sha-overflow"); got != http.StatusPaymentRequired {
 		t.Errorf("scan 11: status = %d, want 402", got)
+	}
+}
+
+// TestOpenAPI_Served (Wave 11): /api/openapi.json returns a valid
+// OpenAPI 3.0 JSON document that lists the public endpoints. We don't
+// validate every path here — that would couple the test to every
+// future edit — but we assert the doc parses as JSON, advertises an
+// `openapi` version, and includes the load-bearing routes.
+func TestOpenAPI_Served(t *testing.T) {
+	srv, _ := setup(t)
+	resp, err := http.Get(srv.URL + "/api/openapi.json")
+	if err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		t.Fatalf("status = %d, want 200", resp.StatusCode)
+	}
+	if ct := resp.Header.Get("Content-Type"); ct != "application/json" {
+		t.Errorf("content-type = %q, want application/json", ct)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	var doc struct {
+		OpenAPI string                 `json:"openapi"`
+		Paths   map[string]interface{} `json:"paths"`
+	}
+	if err := json.Unmarshal(body, &doc); err != nil {
+		t.Fatalf("parse openapi.json: %v", err)
+	}
+	if !strings.HasPrefix(doc.OpenAPI, "3.") {
+		t.Errorf("openapi version = %q, want 3.x", doc.OpenAPI)
+	}
+	for _, want := range []string{"/api/save-proof", "/api/me", "/api/generate-key", "/livez"} {
+		if _, ok := doc.Paths[want]; !ok {
+			t.Errorf("openapi.json missing path %q", want)
+		}
+	}
+}
+
+// TestSaveProof_RateLimitHeaders_FreeTier (Wave 11): every save-proof
+// response on the free post-trial path carries X-RateLimit-Limit,
+// X-RateLimit-Remaining, and X-RateLimit-Reset so CI tooling can warn
+// before the quota is exhausted. Headers must ship on both the success
+// and the 402-overflow responses.
+func TestSaveProof_RateLimitHeaders_FreeTier(t *testing.T) {
+	srv, db := setup(t)
+	userID := "00000000-0000-0000-0000-000000000077"
+	token := seedAPIKey(t, db, userID, "free")
+
+	post := func(commit string) (*http.Response, error) {
+		b, _ := json.Marshal(types.AIBOM{ProjectName: "demo", CommitSha: commit})
+		req, _ := http.NewRequest(http.MethodPost, srv.URL+"/api/save-proof", bytes.NewReader(b))
+		req.Header.Set("Authorization", "Bearer "+token)
+		req.Header.Set("Content-Type", "application/json")
+		return http.DefaultClient.Do(req)
+	}
+
+	// First scan: limit=10, remaining should be 9, reset > 0.
+	resp, err := post("first")
+	if err != nil {
+		t.Fatalf("post: %v", err)
+	}
+	resp.Body.Close()
+	if got := resp.Header.Get("X-RateLimit-Limit"); got != "10" {
+		t.Errorf("X-RateLimit-Limit = %q, want 10", got)
+	}
+	if got := resp.Header.Get("X-RateLimit-Remaining"); got != "9" {
+		t.Errorf("X-RateLimit-Remaining = %q, want 9", got)
+	}
+	if got := resp.Header.Get("X-RateLimit-Reset"); got == "" {
+		t.Error("X-RateLimit-Reset is empty, want unix timestamp")
+	}
+
+	// Exhaust the rest of the quota — last in-window response should
+	// carry remaining=0 and the 402 status.
+	for i := 0; i < 9; i++ {
+		r, err := post(fmt.Sprintf("fill-%d", i))
+		if err != nil {
+			t.Fatalf("post %d: %v", i, err)
+		}
+		r.Body.Close()
+	}
+	resp, err = post("overflow")
+	if err != nil {
+		t.Fatalf("overflow: %v", err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusPaymentRequired {
+		t.Errorf("overflow status = %d, want 402", resp.StatusCode)
+	}
+	if got := resp.Header.Get("X-RateLimit-Remaining"); got != "0" {
+		t.Errorf("overflow remaining = %q, want 0", got)
+	}
+	if got := resp.Header.Get("X-RateLimit-Limit"); got != "10" {
+		t.Errorf("overflow limit = %q, want 10", got)
+	}
+}
+
+// Pro-tier callers have no quota and shouldn't see rate-limit headers.
+// The absence is the contract: CI tooling reading the headers takes
+// missing headers as "unlimited".
+func TestSaveProof_RateLimitHeaders_ProTierAbsent(t *testing.T) {
+	srv, db := setup(t)
+	userID := "00000000-0000-0000-0000-000000000078"
+	token := seedAPIKey(t, db, userID, "pro")
+
+	b, _ := json.Marshal(types.AIBOM{ProjectName: "demo", CommitSha: "pro-1"})
+	req, _ := http.NewRequest(http.MethodPost, srv.URL+"/api/save-proof", bytes.NewReader(b))
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("post: %v", err)
+	}
+	defer resp.Body.Close()
+	for _, h := range []string{"X-RateLimit-Limit", "X-RateLimit-Remaining", "X-RateLimit-Reset"} {
+		if got := resp.Header.Get(h); got != "" {
+			t.Errorf("Pro tier should not emit %s, got %q", h, got)
+		}
 	}
 }
 
@@ -1336,5 +1456,126 @@ func TestStripeWebhook_SubscriptionDeleted_SoftRevoke(t *testing.T) {
 	}
 	if tokenHash != "hash_will_survive" {
 		t.Errorf("token_hash = %q, must be preserved through soft revoke", tokenHash)
+	}
+}
+
+// TestGenerateKey_SetsTrial verifies that a brand-new free-tier user gets a
+// 14-day trial window recorded in trial_ends_at when they first call
+// /api/generate-key.
+func TestGenerateKey_SetsTrial(t *testing.T) {
+	srv, db := setup(t)
+	userID := "00000000-0000-0000-0000-000000000f01"
+	tok := mintJWT(t, userID, "trial@example.com")
+
+	req, _ := http.NewRequest(http.MethodPost, srv.URL+"/api/generate-key", nil)
+	req.Header.Set("Authorization", "Bearer "+tok)
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("generate-key: %v", err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("status = %d, want 201", resp.StatusCode)
+	}
+
+	var trialEndsAt sql.NullTime
+	db.QueryRow(`SELECT trial_ends_at FROM api_keys WHERE user_id = $1`, userID).Scan(&trialEndsAt)
+	if !trialEndsAt.Valid {
+		t.Fatal("trial_ends_at is NULL — trial was not set on generate-key")
+	}
+	daysUntil := int(time.Until(trialEndsAt.Time).Hours() / 24)
+	if daysUntil < 13 || daysUntil > 14 {
+		t.Errorf("trial_ends_at gives %d days remaining, want 13–14", daysUntil)
+	}
+}
+
+// TestSaveProof_TrialBypassesQuota verifies that a free-tier user on an active
+// trial can save more than 10 proof drills (the normal free-tier quota).
+func TestSaveProof_TrialBypassesQuota(t *testing.T) {
+	srv, db := setup(t)
+	userID := "00000000-0000-0000-0000-000000000f02"
+	token := seedAPIKey(t, db, userID, "free")
+
+	// Set an active trial for this user.
+	if _, err := db.Exec(
+		`UPDATE api_keys SET trial_ends_at = NOW() + INTERVAL '7 days' WHERE user_id = $1`, userID,
+	); err != nil {
+		t.Fatalf("set trial: %v", err)
+	}
+
+	post := func(commit string) int {
+		b, _ := json.Marshal(types.AIBOM{ProjectName: "trial-demo", CommitSha: commit})
+		req, _ := http.NewRequest(http.MethodPost, srv.URL+"/api/save-proof", bytes.NewReader(b))
+		req.Header.Set("Authorization", "Bearer "+token)
+		req.Header.Set("Content-Type", "application/json")
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatalf("post: %v", err)
+		}
+		resp.Body.Close()
+		return resp.StatusCode
+	}
+
+	// 15 scans — all should succeed because the trial bypasses the free-tier quota.
+	for i := 0; i < 15; i++ {
+		if got := post(fmt.Sprintf("trial-sha-%d", i)); got != 201 {
+			t.Fatalf("scan %d: status = %d, want 201 (trial should bypass quota)", i+1, got)
+		}
+	}
+}
+
+// TestMe_ReturnsTrial verifies that /api/me includes trialDaysRemaining when
+// a trial is active and omits the field when no trial is set.
+func TestMe_ReturnsTrial(t *testing.T) {
+	srv, db := setup(t)
+	userID := "00000000-0000-0000-0000-000000000f03"
+	tok := mintJWT(t, userID, "me-trial@example.com")
+
+	getMe := func() map[string]any {
+		req, _ := http.NewRequest(http.MethodGet, srv.URL+"/api/me", nil)
+		req.Header.Set("Authorization", "Bearer "+tok)
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatalf("GET /api/me: %v", err)
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("/api/me status = %d, want 200", resp.StatusCode)
+		}
+		var body map[string]any
+		json.NewDecoder(resp.Body).Decode(&body)
+		return body
+	}
+
+	// No row yet — me returns defaults with no trialDaysRemaining.
+	me := getMe()
+	if _, ok := me["trialDaysRemaining"]; ok {
+		t.Error("/api/me should omit trialDaysRemaining when no row exists")
+	}
+
+	// Create a row with an active trial.
+	seedAPIKey(t, db, userID, "free")
+	db.Exec(`UPDATE api_keys SET trial_ends_at = NOW() + INTERVAL '10 days' WHERE user_id = $1`, userID)
+
+	me = getMe()
+	days, ok := me["trialDaysRemaining"]
+	if !ok {
+		t.Fatal("/api/me missing trialDaysRemaining for active trial")
+	}
+	// JSON numbers decode as float64.
+	if d := int(days.(float64)); d < 9 || d > 10 {
+		t.Errorf("trialDaysRemaining = %d, want 9–10", d)
+	}
+
+	// Expired trial (trial_ends_at in the past) → trialDaysRemaining == 0.
+	db.Exec(`UPDATE api_keys SET trial_ends_at = NOW() - INTERVAL '1 day' WHERE user_id = $1`, userID)
+	me = getMe()
+	days, ok = me["trialDaysRemaining"]
+	if !ok {
+		t.Fatal("/api/me missing trialDaysRemaining for expired trial")
+	}
+	if d := int(days.(float64)); d != 0 {
+		t.Errorf("expired trial: trialDaysRemaining = %d, want 0", d)
 	}
 }

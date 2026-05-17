@@ -308,6 +308,12 @@ function formatCostRange(cost) {
   const hi = usdFormatter.format(cost.monthlyUsdHigh);
   return lo === hi ? `${lo} /mo` : `${lo}–${hi} /mo`;
 }
+function formatSpotRange(cost) {
+  if (!cost || !cost.spotMultiplier) return null;
+  const lo = usdFormatter.format(cost.spotMonthlyUsdLow);
+  const hi = usdFormatter.format(cost.spotMonthlyUsdHigh);
+  return lo === hi ? `${lo} /mo` : `${lo}–${hi} /mo`;
+}
 
 function FinOpsTable({ finOps, costEstimate }) {
   if (!finOps || finOps.length === 0) return null;
@@ -332,6 +338,19 @@ function FinOpsTable({ finOps, costEstimate }) {
               {' – '}
               {usdFormatter.format(costEstimate.totalMonthlyUsdHigh)}
             </div>
+            {(costEstimate.totalSpotMonthlyUsdLow > 0 || costEstimate.totalSpotMonthlyUsdHigh > 0) && (
+              <div className="text-[11px] text-emerald-700 font-semibold">
+                Spot: {usdFormatter.format(costEstimate.totalSpotMonthlyUsdLow)}
+                {' – '}
+                {usdFormatter.format(costEstimate.totalSpotMonthlyUsdHigh)}
+                {' '}
+                <span className="text-emerald-600">
+                  (save {usdFormatter.format(costEstimate.spotSavingsMonthlyUsdLow)}
+                  {' – '}
+                  {usdFormatter.format(costEstimate.spotSavingsMonthlyUsdHigh)})
+                </span>
+              </div>
+            )}
             <div className="text-[10px] text-amber-600 max-w-xs">
               {costEstimate.costedFindings} costed
               {costEstimate.uncostedFindings > 0 && ` · ${costEstimate.uncostedFindings} no catalog match`}
@@ -346,6 +365,7 @@ function FinOpsTable({ finOps, costEstimate }) {
               <th className="p-4 font-semibold">Manifest / Resource</th>
               <th className="p-4 font-semibold">Finding</th>
               <th className="p-4 font-semibold">Est. $/mo</th>
+              <th className="p-4 font-semibold">Spot $/mo</th>
               <th className="p-4 font-semibold">Location</th>
             </tr>
           </thead>
@@ -359,6 +379,9 @@ function FinOpsTable({ finOps, costEstimate }) {
                 </td>
                 <td className="p-4 text-slate-700 text-sm font-mono whitespace-nowrap">
                   {formatCostRange(f.estimatedCost) || <span className="text-slate-400">—</span>}
+                </td>
+                <td className="p-4 text-emerald-700 text-sm font-mono whitespace-nowrap">
+                  {formatSpotRange(f.estimatedCost) || <span className="text-slate-400">—</span>}
                 </td>
                 <td className="p-4 text-slate-500 text-sm font-mono">{f.location}</td>
               </tr>

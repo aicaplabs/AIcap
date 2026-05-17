@@ -12,12 +12,15 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
 	"aicap/pkg/api"
 	"aicap/pkg/compliance"
+	"aicap/pkg/finops"
 	"aicap/pkg/httplog"
+	"aicap/pkg/imagescan"
 	"aicap/pkg/migrate"
 	"aicap/pkg/scanner"
 
@@ -52,12 +55,27 @@ func main() {
 
 	// Headless CLI Mode for CI/CD Pipelines
 	if len(os.Args) > 1 && os.Args[1] == "--cli" {
-		scanDir := "."
-		if len(os.Args) > 2 {
-			scanDir = os.Args[2]
-		}
+		scanDir, imageRefs, tarballPaths, wantCycloneDX := parseCLIArgs(os.Args[2:])
 		fmt.Printf("Running AIcap in CI/CD CLI mode on directory: %s\n", scanDir)
 		bom := scanner.PerformScan(scanDir)
+
+		// Wave 10 — daemonless container-image scanning. Either
+		// flag may be repeated, so a pipeline that builds + saves
+		// a tarball AND wants to cross-check against the most
+		// recently pushed tag can pass both. Failures (unreachable
+		// registry, malformed tarball) are surfaced as warnings
+		// without aborting the directory scan that already ran.
+		if len(imageRefs) > 0 || len(tarballPaths) > 0 {
+			fmt.Printf("Scanning %d container image(s) and %d tarball(s)\n", len(imageRefs), len(tarballPaths))
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+			imgDeps, scannedImages, imgErrs := imagescan.ScanRefs(ctx, imageRefs, tarballPaths)
+			cancel()
+			for _, e := range imgErrs {
+				fmt.Printf("[-] Warning: container-image scan: %s\n", e)
+			}
+			bom.Dependencies = append(bom.Dependencies, imgDeps...)
+			bom.ScannedImages = append(bom.ScannedImages, scannedImages...)
+		}
 
 		// Pull exact repository and commit data from GitHub Actions environment
 		if repo := os.Getenv("GITHUB_REPOSITORY"); repo != "" {
@@ -67,15 +85,18 @@ func main() {
 			bom.CommitSha = sha
 		}
 
-		bomJSON, _ := json.MarshalIndent(bom, "", "  ")
-
-		// Check for --cyclonedx output flag
-		wantCycloneDX := false
-		for _, arg := range os.Args {
-			if arg == "--cyclonedx" {
-				wantCycloneDX = true
+		// Re-evaluate compliance after image findings are merged
+		// so a high-risk model weight discovered in a layer flips
+		// the BOM to "Action Required" the same as one found on
+		// disk would. Mirrors PerformScan's posture loop.
+		for _, dep := range bom.Dependencies {
+			if dep.RiskLevel == "High" && bom.Compliance == "Passed" {
+				bom.Compliance = "Action Required (Annex IV Documentation Missing)"
+				break
 			}
 		}
+
+		bomJSON, _ := json.MarshalIndent(bom, "", "  ")
 
 		if wantCycloneDX {
 			cdx := compliance.GenerateCycloneDXBOM(bom)
@@ -164,6 +185,19 @@ func main() {
 		db = nil
 	}
 
+	// AICAP_GPU_COSTS_URL: optional remote catalog that replaces the embedded
+	// gpu_costs.json. Allows pricing data to be refreshed without a binary
+	// release. Falls back to the embedded catalog on any fetch or parse error.
+	if gpuCostsURL := os.Getenv("AICAP_GPU_COSTS_URL"); gpuCostsURL != "" {
+		if err := finops.LoadCatalogFromURL(gpuCostsURL); err != nil {
+			slog.Warn("remote GPU cost catalog unavailable, using embedded catalog",
+				slog.String("url", gpuCostsURL),
+				slog.Any("error", err))
+		} else {
+			slog.Info("loaded remote GPU cost catalog", slog.String("url", gpuCostsURL))
+		}
+	}
+
 	mux := http.NewServeMux()
 	api.RegisterRoutes(mux, db, isCloudSaaS)
 
@@ -219,4 +253,55 @@ func main() {
 	if db != nil {
 		_ = db.Close()
 	}
+}
+
+// parseCLIArgs parses the --cli subcommand's tail (everything after
+// the "--cli" token). The first positional argument is the scan
+// directory (defaults to "."). Recognised flags:
+//
+//	--image <ref>      Remote registry reference. Repeatable.
+//	--image-tar <path> Local docker-save tarball. Repeatable.
+//	--cyclonedx        Emit CycloneDX-formatted SBOM instead of AICAP JSON.
+//
+// Unknown flags are ignored to preserve forward compatibility with
+// the GitHub Action wrapper: a new action.yml release can pass new
+// flags to an older binary without breaking the pipeline.
+func parseCLIArgs(args []string) (scanDir string, imageRefs []string, tarballPaths []string, wantCycloneDX bool) {
+	scanDir = "."
+	sawDir := false
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		switch arg {
+		case "--image":
+			if i+1 < len(args) {
+				imageRefs = append(imageRefs, args[i+1])
+				i++
+			}
+		case "--image-tar":
+			if i+1 < len(args) {
+				tarballPaths = append(tarballPaths, args[i+1])
+				i++
+			}
+		case "--cyclonedx":
+			wantCycloneDX = true
+		default:
+			if strings.HasPrefix(arg, "--") {
+				// Unknown flag — skip it AND its value if the
+				// next token looks like a value (not another
+				// flag, not the trailing arg list). Keeps the
+				// CLI forward-compatible with newer action.yml
+				// versions that might pass flags the binary
+				// doesn't yet recognise.
+				if i+1 < len(args) && !strings.HasPrefix(args[i+1], "--") {
+					i++
+				}
+				continue
+			}
+			if !sawDir {
+				scanDir = arg
+				sawDir = true
+			}
+		}
+	}
+	return scanDir, imageRefs, tarballPaths, wantCycloneDX
 }

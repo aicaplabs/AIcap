@@ -5,12 +5,14 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"database/sql"
+	_ "embed"
 	"encoding/hex"
 	"encoding/json"
 	"io"
 	"log/slog"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -25,6 +27,9 @@ import (
 	"github.com/stripe/stripe-go/v79/checkout/session"
 	"github.com/stripe/stripe-go/v79/webhook"
 )
+
+//go:embed openapi.json
+var openapiJSON []byte
 
 // RegisterRoutes wires all AIcap HTTP handlers onto `mux`. `db` may be nil in
 // local/headless mode — in that case the SaaS-only endpoints short-circuit to
@@ -88,6 +93,20 @@ func RegisterRoutes(mux *http.ServeMux, db *sql.DB, isCloudSaaS bool) {
 	mux.HandleFunc("/livez", livez)
 	mux.HandleFunc("/readyz", readyz)
 	mux.HandleFunc("/healthz", readyz)
+
+	// --- OpenAPI spec (Wave 11) --------------------------------------------
+	// Static document describing the public HTTP surface. The CLI uses it
+	// for client generation; auditors use it to confirm route + auth
+	// shape. Cached for 1h since the spec changes only on deploy.
+	mux.HandleFunc("/api/openapi.json", func(w http.ResponseWriter, r *http.Request) {
+		cors(w, r)
+		if r.Method == http.MethodOptions {
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Cache-Control", "public, max-age=3600")
+		w.Write(openapiJSON)
+	})
 
 	// --- Local scan (dev only) ----------------------------------------------
 	// /api/scan runs a filesystem scan on the server's working directory. That
@@ -179,20 +198,63 @@ func RegisterRoutes(mux *http.ServeMux, db *sql.DB, isCloudSaaS bool) {
 		// no reset job, no writer contention on UPDATE, and no race where a
 		// scan is recorded but the counter increment fails.
 		if tier == "free" {
-			var recent int
+			// Trial users (trial_ends_at > NOW()) get Pro-equivalent access for
+			// the trial window; only apply the quota to post-trial free accounts.
+			var onTrial bool
 			if err := db.QueryRow(
-				`SELECT COUNT(*) FROM proof_drills
-				 WHERE user_id = $1 AND created_at > NOW() - INTERVAL '30 days'`,
+				`SELECT COALESCE(trial_ends_at > NOW(), false) FROM api_keys WHERE user_id = $1`,
 				userID,
-			).Scan(&recent); err != nil {
-				httplog.From(r.Context()).Error("rate-limit check failed",
+			).Scan(&onTrial); err != nil && err != sql.ErrNoRows {
+				httplog.From(r.Context()).Error("trial check failed",
 					slog.String("user_id", userID), slog.Any("error", err))
 				http.Error(w, "Internal server error", http.StatusInternalServerError)
 				return
 			}
-			if recent >= 10 {
-				http.Error(w, "Payment Required: Free tier limit of 10 cloud syncs per 30 days reached. Please upgrade to Pro.", http.StatusPaymentRequired)
-				return
+			if !onTrial {
+				// Single round-trip for the count + the oldest in-window
+				// timestamp — the oldest scan in the rolling window is
+				// what aged-out-time `X-RateLimit-Reset` keys off.
+				var recent int
+				var oldestUnix sql.NullInt64
+				if err := db.QueryRow(`
+					SELECT COUNT(*),
+					       COALESCE(EXTRACT(EPOCH FROM MIN(created_at))::BIGINT, 0)
+					FROM proof_drills
+					WHERE user_id = $1 AND created_at > NOW() - INTERVAL '30 days'`,
+					userID,
+				).Scan(&recent, &oldestUnix); err != nil {
+					httplog.From(r.Context()).Error("rate-limit check failed",
+						slog.String("user_id", userID), slog.Any("error", err))
+					http.Error(w, "Internal server error", http.StatusInternalServerError)
+					return
+				}
+				const freeLimit = 10
+				// Reset = oldest scan in the rolling 30-day window aging
+				// out (i.e. when one quota slot opens up). When no scans
+				// have been made yet, the reset point is "right now" —
+				// the user can proceed immediately.
+				reset := time.Now().Unix()
+				if oldestUnix.Valid && oldestUnix.Int64 > 0 {
+					reset = oldestUnix.Int64 + int64(30*24*60*60)
+				}
+				// Headers report state AFTER this request, matching the
+				// convention CI tooling expects (GitHub, Cloudflare,
+				// Stripe): if the request will be admitted, the slot it
+				// consumes is already deducted from Remaining.
+				remaining := freeLimit - recent
+				if recent < freeLimit {
+					remaining = freeLimit - recent - 1
+				}
+				if remaining < 0 {
+					remaining = 0
+				}
+				w.Header().Set("X-RateLimit-Limit", strconv.Itoa(freeLimit))
+				w.Header().Set("X-RateLimit-Remaining", strconv.Itoa(remaining))
+				w.Header().Set("X-RateLimit-Reset", strconv.FormatInt(reset, 10))
+				if recent >= freeLimit {
+					http.Error(w, "Payment Required: Free tier limit of 10 cloud syncs per 30 days reached. Please upgrade to Pro.", http.StatusPaymentRequired)
+					return
+				}
 			}
 		}
 
@@ -1037,9 +1099,11 @@ func RegisterRoutes(mux *http.ServeMux, db *sql.DB, isCloudSaaS bool) {
 		// a Pro marker (NULL hash), we fill it in and preserve the 'pro'
 		// tier; if there's no row at all, the INSERT path creates a 'free'
 		// key for a user who is generating before paying.
+		// trial_ends_at is only set on INSERT (new users) — existing rows keep
+		// whatever trial window (or NULL) they already have.
 		if _, err := db.Exec(
-			`INSERT INTO api_keys (user_id, token_hash, subscription_tier)
-			 VALUES ($1, $2, 'free')
+			`INSERT INTO api_keys (user_id, token_hash, subscription_tier, trial_ends_at)
+			 VALUES ($1, $2, 'free', NOW() + INTERVAL '14 days')
 			 ON CONFLICT (user_id) DO UPDATE
 			 SET token_hash = EXCLUDED.token_hash`,
 			userID, hashed,
@@ -1237,10 +1301,11 @@ func RegisterRoutes(mux *http.ServeMux, db *sql.DB, isCloudSaaS bool) {
 
 		var tokenHash sql.NullString
 		var tier sql.NullString
+		var trialEndsAt sql.NullTime
 		err := db.QueryRow(
-			`SELECT token_hash, subscription_tier FROM api_keys WHERE user_id = $1`,
+			`SELECT token_hash, subscription_tier, trial_ends_at FROM api_keys WHERE user_id = $1`,
 			userID,
-		).Scan(&tokenHash, &tier)
+		).Scan(&tokenHash, &tier, &trialEndsAt)
 		if err != nil && err != sql.ErrNoRows {
 			logger.Error("me lookup", slog.Any("error", err))
 			http.Error(w, "Internal server error", http.StatusInternalServerError)
@@ -1251,10 +1316,18 @@ func RegisterRoutes(mux *http.ServeMux, db *sql.DB, isCloudSaaS bool) {
 		if tier.Valid && tier.String != "" {
 			resolvedTier = tier.String
 		}
-		json.NewEncoder(w).Encode(map[string]any{
+		resp := map[string]any{
 			"hasKey": tokenHash.Valid && tokenHash.String != "",
 			"tier":   resolvedTier,
-		})
+		}
+		if trialEndsAt.Valid {
+			remaining := int(time.Until(trialEndsAt.Time).Hours() / 24)
+			if remaining < 0 {
+				remaining = 0
+			}
+			resp["trialDaysRemaining"] = remaining
+		}
+		json.NewEncoder(w).Encode(resp)
 	}
 	mux.HandleFunc("/api/me", withCORS(auth.RequireSupabaseJWT(meHandler)))
 }
