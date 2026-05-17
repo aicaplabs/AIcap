@@ -3,6 +3,8 @@ package main
 import (
 	"reflect"
 	"testing"
+
+	"aicap/pkg/types"
 )
 
 func TestParseCLIArgs_DirectoryOnly(t *testing.T) {
@@ -61,5 +63,48 @@ func TestParseCLIArgs_MissingFlagValueIsTolerated(t *testing.T) {
 	_, refs, _, _ := parseCLIArgs([]string{"./src", "--image"})
 	if len(refs) != 0 {
 		t.Errorf("trailing --image with no value should be ignored, got refs=%v", refs)
+	}
+}
+
+// Wave 12: complianceExitCode returns 2 when any policy violation has
+// Blocker severity, even if bom.Compliance is otherwise "Passed".
+func TestComplianceExitCode_PolicyBlockerWins(t *testing.T) {
+	bom := types.AIBOM{
+		Compliance: "Passed",
+		PolicyViolations: []types.PolicyViolation{
+			{Rule: "blocked_model", Severity: "Blocker", Description: "x"},
+		},
+	}
+	if got := complianceExitCode(bom); got != 2 {
+		t.Errorf("exit = %d, want 2 for Blocker policy violation", got)
+	}
+}
+
+// A non-Blocker policy warning alone should not trigger exit 2 — it's
+// information, not a fail-fast signal.
+func TestComplianceExitCode_WarningDoesNotTrigger2(t *testing.T) {
+	bom := types.AIBOM{
+		Compliance: "Passed",
+		PolicyViolations: []types.PolicyViolation{
+			{Rule: "missing_license", Severity: "Warning", Description: "x"},
+		},
+	}
+	if got := complianceExitCode(bom); got != 0 {
+		t.Errorf("exit = %d, want 0 when only warnings present", got)
+	}
+}
+
+// Pre-Wave-12 fallback: high-risk dep without policy still maps to
+// exit 1 so existing CI pipelines see no behaviour change.
+func TestComplianceExitCode_NonPolicyFailureIsOne(t *testing.T) {
+	bom := types.AIBOM{Compliance: "Action Required (Annex IV Documentation Missing)"}
+	if got := complianceExitCode(bom); got != 1 {
+		t.Errorf("exit = %d, want 1 for non-policy failure", got)
+	}
+}
+
+func TestComplianceExitCode_PassedIsZero(t *testing.T) {
+	if got := complianceExitCode(types.AIBOM{Compliance: "Passed"}); got != 0 {
+		t.Errorf("exit = %d, want 0", got)
 	}
 }

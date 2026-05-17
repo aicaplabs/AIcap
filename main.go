@@ -23,6 +23,7 @@ import (
 	"aicap/pkg/imagescan"
 	"aicap/pkg/migrate"
 	"aicap/pkg/scanner"
+	"aicap/pkg/types"
 
 	_ "github.com/lib/pq"
 )
@@ -129,12 +130,12 @@ func main() {
 			}
 		}
 
-		if bom.Compliance != "Passed" {
-			fmt.Println("\n[!] Compliance scan failed. High-risk dependencies detected without active mitigation. Blocking pipeline.")
-			os.Exit(1)
-		}
-		fmt.Println("\n[+] Compliance scan passed. Pipeline approved.")
-		os.Exit(0)
+		// Wave 12: differentiate exit codes so CI tooling can react
+		// differently to "high-risk dep, no policy" (exit 1) vs an
+		// explicit .aicap.yml policy breach (exit 2). Allows pipelines
+		// to skip notification noise on warnings while still failing
+		// loudly on blocker-severity violations.
+		os.Exit(complianceExitCode(bom))
 	}
 
 	httplog.Init()
@@ -253,6 +254,44 @@ func main() {
 	if db != nil {
 		_ = db.Close()
 	}
+}
+
+// complianceExitCode maps the post-scan BOM state to a CI exit code.
+// The contract (Wave 12):
+//
+//	0 — scan passed; pipeline approved
+//	1 — non-policy compliance failure (e.g. high-risk dependency with
+//	    no matching mitigation, or no .aicap.yml on file)
+//	2 — explicit .aicap.yml policy breach with at least one Blocker-
+//	    severity violation (blocked model, allowlist miss, BlockOnHighRisk)
+//
+// Policy *warnings* (missing license, license not in allowlist) do not
+// trigger exit 2 on their own — they're surfaced in the BOM but the
+// pipeline keeps running. CI tooling can grep the JSON output if it
+// wants to fail on warnings too.
+func complianceExitCode(bom types.AIBOM) int {
+	hasBlocker := false
+	for _, v := range bom.PolicyViolations {
+		if v.Severity == "Blocker" {
+			hasBlocker = true
+			break
+		}
+	}
+	if hasBlocker {
+		fmt.Println("\n[!] Policy breach detected. .aicap.yml Blocker rule(s) tripped — failing pipeline (exit 2).")
+		for _, v := range bom.PolicyViolations {
+			if v.Severity == "Blocker" {
+				fmt.Printf("    - [%s] %s\n", v.Rule, v.Description)
+			}
+		}
+		return 2
+	}
+	if bom.Compliance != "Passed" {
+		fmt.Println("\n[!] Compliance scan failed. High-risk dependencies detected without active mitigation. Blocking pipeline.")
+		return 1
+	}
+	fmt.Println("\n[+] Compliance scan passed. Pipeline approved.")
+	return 0
 }
 
 // parseCLIArgs parses the --cli subcommand's tail (everything after

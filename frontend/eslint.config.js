@@ -26,4 +26,12 @@ export default defineConfig([
       'no-unused-vars': ['error', { varsIgnorePattern: '^[A-Z_]' }],
     },
   },
+  // Wave 12: Playwright config + E2E specs run in Node, not the
+  // browser; expose Node globals (process, etc.) for those files only.
+  {
+    files: ['playwright.config.js', 'e2e/**/*.{js,jsx}'],
+    languageOptions: {
+      globals: { ...globals.node },
+    },
+  },
 ])
