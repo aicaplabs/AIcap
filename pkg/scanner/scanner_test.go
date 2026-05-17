@@ -1245,6 +1245,87 @@ func TestLoadPolicyConfig_ParsesPurpose(t *testing.T) {
 	}
 }
 
+// Wave 12: contact_email, data_inputs, training_datasets are parsed
+// from .aicap.yml and surfaced in Annex IV § 1 (replacing the
+// [REQUIRES MANUAL INPUT] placeholders).
+func TestLoadPolicyConfig_Wave12Fields(t *testing.T) {
+	content := `contact_email: ai-governance@example.eu
+purpose: Customer support chatbot
+data_inputs:
+  - "Free-text user queries (EN/FR)"
+  - "Customer policy metadata"
+training_datasets:
+  - "Internal transcripts 2022-2025"
+  - MultiNLI 1.0
+`
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, ".aicap.yml"), []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+	policy := compliance.LoadPolicyConfig(dir)
+	if policy == nil {
+		t.Fatal("policy = nil")
+	}
+	if policy.ContactEmail != "ai-governance@example.eu" {
+		t.Errorf("ContactEmail = %q, want ai-governance@example.eu", policy.ContactEmail)
+	}
+	if len(policy.DataInputs) != 2 {
+		t.Errorf("DataInputs = %d, want 2 (%v)", len(policy.DataInputs), policy.DataInputs)
+	}
+	if len(policy.TrainingDatasets) != 2 {
+		t.Errorf("TrainingDatasets = %d, want 2 (%v)", len(policy.TrainingDatasets), policy.TrainingDatasets)
+	}
+}
+
+// Wave 12: when the Annex IV § 1 fields are populated on bom.Policy
+// the rendered markdown contains the evidence and drops the
+// placeholders.
+func TestAnnexIV_Section1_Wave12Fields_Rendered(t *testing.T) {
+	bom := types.AIBOM{
+		ProjectName: "demo",
+		Policy: &types.PolicyConfig{
+			ContactEmail:     "ai@example.eu",
+			DataInputs:       []string{"text queries", "structured CRM data"},
+			TrainingDatasets: []string{"Internal transcripts 2024", "OpenWebText"},
+		},
+	}
+	md := compliance.GenerateAnnexIVMarkdown(bom)
+	for _, want := range []string{
+		"ai@example.eu",
+		"text queries",
+		"Internal transcripts 2024",
+		"OpenWebText",
+	} {
+		if !strings.Contains(md, want) {
+			t.Errorf("Annex IV § 1 missing %q", want)
+		}
+	}
+	for _, placeholder := range []string{
+		"REQUIRES MANUAL INPUT: Email of the provider",
+		"REQUIRES MANUAL INPUT: List the modalities",
+		"REQUIRES MANUAL INPUT: List the datasets",
+	} {
+		if strings.Contains(md, placeholder) {
+			t.Errorf("Annex IV § 1 still contains placeholder %q after fields populated", placeholder)
+		}
+	}
+}
+
+// Wave 12: when bom.Policy is nil OR the new fields are empty,
+// placeholders remain so auditors see explicit "fill this in" prompts.
+func TestAnnexIV_Section1_Wave12Fields_PlaceholdersWhenAbsent(t *testing.T) {
+	md := compliance.GenerateAnnexIVMarkdown(types.AIBOM{ProjectName: "x"})
+	for _, want := range []string{
+		"REQUIRES MANUAL INPUT: Email of the provider",
+		"REQUIRES MANUAL INPUT: List the modalities",
+		"REQUIRES MANUAL INPUT: List the datasets",
+	} {
+		if !strings.Contains(md, want) {
+			t.Errorf("Annex IV § 1 missing placeholder %q when Policy is nil", want)
+		}
+	}
+}
+
 
 
 

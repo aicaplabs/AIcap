@@ -1,0 +1,64 @@
+{
+  "projectName": "playwright/demo-repo",
+  "commitSha": "e2e-fixture-001",
+  "scannedFiles": 42,
+  "complianceStatus": "Passed",
+  "dependencies": [
+    {
+      "name": "transformers",
+      "version": "4.40.0",
+      "ecosystem": "Python (PyPI)",
+      "riskLevel": "Medium",
+      "description": "HuggingFace transformers library",
+      "license": "Apache-2.0",
+      "location": "requirements.txt"
+    },
+    {
+      "name": "Llama-3-8B",
+      "version": "Llama-3-8B",
+      "ecosystem": "Model Weight",
+      "riskLevel": "High",
+      "description": "Hardcoded model reference",
+      "license": "llama3.1",
+      "location": "src/inference.py"
+    }
+  ],
+  "finOps": [
+    {
+      "resource": "infra.tf",
+      "severity": "Warning",
+      "description": "GPU instance type p4d.24xlarge detected.",
+      "location": "infra/main.tf",
+      "estimatedCost": {
+        "instanceFamily": "p4d.",
+        "cloud": "AWS",
+        "hourlyUsdLow": 32.77,
+        "hourlyUsdHigh": 32.77,
+        "monthlyUsdLow": 23922.1,
+        "monthlyUsdHigh": 23922.1,
+        "description": "NVIDIA A100 40GB GPU (p4d.24xlarge)",
+        "spotMultiplier": 0.3,
+        "spotHourlyUsdLow": 9.831,
+        "spotHourlyUsdHigh": 9.831,
+        "spotMonthlyUsdLow": 7176.63,
+        "spotMonthlyUsdHigh": 7176.63
+      }
+    }
+  ],
+  "finOpsCostEstimate": {
+    "totalMonthlyUsdLow": 23922.1,
+    "totalMonthlyUsdHigh": 23922.1,
+    "currency": "USD",
+    "assumedHoursPerMonth": 730,
+    "disclaimer": "Estimates assume 730 hours/month at on-demand list pricing.",
+    "costedFindings": 1,
+    "uncostedFindings": 0,
+    "totalSpotMonthlyUsdLow": 7176.63,
+    "totalSpotMonthlyUsdHigh": 7176.63,
+    "spotSavingsMonthlyUsdLow": 16745.47,
+    "spotSavingsMonthlyUsdHigh": 16745.47,
+    "spotDisclaimer": "Spot savings assume the workload tolerates preemption."
+  },
+  "governance": {},
+  "policyViolations": []
+}

@@ -33,10 +33,36 @@ func GenerateAnnexIVMarkdownWithRegister(bom types.AIBOM, register types.RiskReg
 	sb.WriteString(fmt.Sprintf("- **Total Files Scanned:** %d\n", bom.ScannedFiles))
 	sb.WriteString(fmt.Sprintf("- **AI Components Detected:** %d\n", len(bom.Dependencies)))
 	if bom.Policy != nil && bom.Policy.Purpose != "" {
-		sb.WriteString(fmt.Sprintf("- **Intended Purpose:** %s\n\n", bom.Policy.Purpose))
+		sb.WriteString(fmt.Sprintf("- **Intended Purpose:** %s\n", bom.Policy.Purpose))
 	} else {
-		sb.WriteString("- **Intended Purpose:** `[REQUIRES MANUAL INPUT: Describe the exact purpose of this AI system]`\n\n")
+		sb.WriteString("- **Intended Purpose:** `[REQUIRES MANUAL INPUT: Describe the exact purpose of this AI system]`\n")
 	}
+	// Wave 12: declarative Annex IV § 1 fields from .aicap.yml. Each
+	// renders evidence when populated and the [REQUIRES MANUAL INPUT]
+	// placeholder otherwise, so an auditor reading the document always
+	// sees one or the other — never a silent omission.
+	if bom.Policy != nil && bom.Policy.ContactEmail != "" {
+		sb.WriteString(fmt.Sprintf("- **Provider Contact:** %s\n", bom.Policy.ContactEmail))
+	} else {
+		sb.WriteString("- **Provider Contact:** `[REQUIRES MANUAL INPUT: Email of the provider's regulatory point-of-contact]`\n")
+	}
+	if bom.Policy != nil && len(bom.Policy.DataInputs) > 0 {
+		sb.WriteString("- **Data Inputs:**\n")
+		for _, in := range bom.Policy.DataInputs {
+			sb.WriteString(fmt.Sprintf("  - %s\n", in))
+		}
+	} else {
+		sb.WriteString("- **Data Inputs:** `[REQUIRES MANUAL INPUT: List the modalities and sources of input data the system accepts]`\n")
+	}
+	if bom.Policy != nil && len(bom.Policy.TrainingDatasets) > 0 {
+		sb.WriteString("- **Training Datasets:**\n")
+		for _, ds := range bom.Policy.TrainingDatasets {
+			sb.WriteString(fmt.Sprintf("  - %s\n", ds))
+		}
+	} else {
+		sb.WriteString("- **Training Datasets:** `[REQUIRES MANUAL INPUT: List the datasets used to train or fine-tune the system, with version + provenance]`\n")
+	}
+	sb.WriteString("\n")
 
 	// Section 2: Architecture & Components
 	sb.WriteString("## 2. System Architecture & Components (Annex IV, Section 2)\n\n")
@@ -364,6 +390,10 @@ func LoadPolicyConfig(scanDir string) *types.PolicyConfig {
 				currentList = &policy.BlockedModels
 			case "allowed_licenses":
 				currentList = &policy.AllowedLicenses
+			case "data_inputs":
+				currentList = &policy.DataInputs
+			case "training_datasets":
+				currentList = &policy.TrainingDatasets
 			case "max_risk_level":
 				policy.MaxRiskLevel = val
 			case "block_on_high_risk":
@@ -372,6 +402,8 @@ func LoadPolicyConfig(scanDir string) *types.PolicyConfig {
 				policy.RequireLicenses = val == "true"
 			case "purpose":
 				policy.Purpose = val
+			case "contact_email":
+				policy.ContactEmail = val
 			}
 		}
 	}

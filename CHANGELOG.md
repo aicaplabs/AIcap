@@ -9,6 +9,79 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 Trial of new features lands on `development` first. Once a stable
 batch is ready, it is merged to `main` and tagged.
 
+### Added — Compliance polish, policy exit codes, Playwright (Wave 12)
+- **`.aicap.yml` expanded fields** — `contact_email`, `data_inputs`,
+  `training_datasets` parsed by `LoadPolicyConfig`. Annex IV § 1 now
+  renders them when present and keeps the `[REQUIRES MANUAL INPUT]`
+  placeholder when absent — a fully populated policy file means the
+  generated document needs zero manual editing post-scan. Surfaces
+  `Provider Contact`, `Data Inputs`, and `Training Datasets` lines.
+- **Policy-violation exit codes** — `aicap --cli` now exits **2** when
+  the BOM has any Blocker-severity policy violation (blocked model,
+  allowlist miss, `block_on_high_risk`), **1** for non-policy compliance
+  failures (high-risk dep without mitigation), **0** when clean. Allows
+  CI pipelines to fail fast on explicit policy breaches without
+  conflating them with informational risk warnings. New `complianceExitCode`
+  helper + 4 unit tests in `main_test.go`.
+- **Playwright E2E scaffolding** — `frontend/playwright.config.js` +
+  `frontend/e2e/`. One actively-exercised spec (`scan-to-annex.spec.js`)
+  runs against `npm run dev` in local mode with `/api/scan`,
+  `/api/db-config`, `/api/history` mocked via route handlers; asserts
+  the BOM table hydrates, the FinOps spot column renders, the Annex IV
+  preview opens, and the download CTA produces a markdown file. Two
+  auth-dependent specs (`signup-checkout-key.spec.js`,
+  `rotate-key.spec.js`) ship as `test.fixme` placeholders with TODOs
+  describing the Supabase auth-mocking layer the next iteration needs.
+  CI job added to `.github/workflows/go-test.yml`.
+
+### Added — FinOps spot/rightsizing + dev-ex headers + OpenAPI (Wave 11)
+- **Spot/preemptible projection** — `pkg/finops/gpu_costs.json` carries
+  per-cloud `spot_multipliers` (0.30 AWS / Azure / GCP defaults).
+  `LookupGPUCost` populates `SpotHourly/MonthlyUSD*` fields on every
+  matched `FinOpsCost`; `EstimateBOMCost` aggregates
+  `TotalSpotMonthlyUSD*` and derives `SpotSavingsMonthlyUSD*`. Annex IV
+  § 2(c) and the dashboard FinOps table now show the spot projection
+  alongside the on-demand figure with a savings callout.
+- **Rightsizing recommendations** — `pkg/finops/rightsize.go` emits
+  `FinOpsRightsizing` suggestions when `HasTrainingSignals(bom)` is
+  false and the finding's family is in a curated training→inference
+  map (AWS `p4d`/`p4de`/`p5`/`p3`/`trn1` → `inf2`/`g5`; GCP
+  `a3-highgpu`/`a2-*` → `g2-standard`). Skips findings on
+  already-inference families. Surfaces under § 2(c) "Rightsizing
+  recommendations" with rationale + estimated savings range.
+- **Rate-limit response headers** — `/api/save-proof` emits
+  `X-RateLimit-Limit`, `X-RateLimit-Remaining`, `X-RateLimit-Reset`
+  on free post-trial responses (both 201 and 402). Remaining is
+  post-decrement (GitHub convention). Pro/trial callers receive no
+  headers (treated as unlimited). Reset = oldest in-window scan +
+  30 days. New `strconv` import + single round-trip count query.
+- **OpenAPI 3.0.3 spec** — `pkg/api/openapi.json` embedded via
+  `//go:embed`; `GET /api/openapi.json` serves it with
+  `Cache-Control: public, max-age=3600`. Covers all routes
+  (`save-proof`, `history`, `proof`, `verify-chain`, `me`,
+  `generate-key`, `rotate-key`, `create-checkout-session`,
+  `verify-checkout`, `customer-portal`, `stripe-webhook`, `livez`,
+  `readyz`), both auth schemes (`apiKey` / `supabaseJWT`), and the
+  new rate-limit headers.
+
+### Added — Live FinOps catalog refresh (Wave 9e)
+- **`AICAP_GPU_COSTS_URL`** — optional remote catalog URL fetched at
+  server boot via `finops.LoadCatalogFromURL`. Lets ops refresh GPU
+  pricing without cutting a binary release. Fail-soft: any fetch /
+  non-200 / parse failure leaves the embedded `gpu_costs.json`
+  intact, logged at WARN. 5-second client timeout.
+
+### Added — 14-day reverse trial (Wave 9c)
+- **Migration 00012** — `api_keys` gains `trial_ends_at TIMESTAMPTZ`.
+  New signups land with `trial_ends_at = NOW() + INTERVAL '14 days'`
+  so they have full Pro-equivalent access from day one without a card.
+- **Rate limiter** checks `trial_ends_at > NOW()` before applying the
+  free-tier quota — trial users see no `402` ceiling.
+- **`/api/me`** returns `trialDaysRemaining` so the frontend can show
+  a countdown ribbon. `App.jsx` routes trial users to `ProDashboard`
+  even when `tier === 'free'`. `Paywall` differentiates "trial just
+  expired" vs "free from day one" with separate copy.
+
 ### Added — Daemonless container-image filesystem scanning (Wave 10)
 - **`pkg/imagescan/`** — walks OCI / Docker image layers without a
   running Docker daemon, via `github.com/google/go-containerregistry`.

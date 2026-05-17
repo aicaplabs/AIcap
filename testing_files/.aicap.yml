@@ -24,3 +24,17 @@ require_licenses: true
 #   - MIT
 #   - Apache-2.0
 #   - llama3.1
+
+# --- Annex IV § 1 declarative fields (Wave 12) ---
+# When set, the rendered Annex IV § 1 replaces the [REQUIRES MANUAL INPUT]
+# placeholders with these values. A fully populated block means the
+# generated document needs zero manual editing post-scan.
+
+# purpose: "Customer-support chatbot for an EU-licensed insurance provider."
+# contact_email: "ai-governance@example.eu"
+# data_inputs:
+#   - "Free-text user queries in EN/FR/DE (chat UI)"
+#   - "Customer policy metadata pulled from CRM (read-only)"
+# training_datasets:
+#   - "Internal support transcripts 2022-2025 (DPIA #41)"
+#   - "MultiNLI 1.0 (CC-BY)"

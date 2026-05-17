@@ -22,3 +22,9 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Playwright (Wave 12)
+test-results/
+playwright-report/
+blob-report/
+playwright/.cache/
