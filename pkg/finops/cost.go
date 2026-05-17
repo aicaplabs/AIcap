@@ -46,8 +46,10 @@ type catalogEntry struct {
 // Surfaced into the FinOpsCostSummary disclaimer so auditors see exactly
 // what we baked in.
 type catalogMeta struct {
-	AssumedHoursPerMonth int    `json:"assumed_hours_per_month"`
-	Disclaimer           string `json:"disclaimer"`
+	AssumedHoursPerMonth int                `json:"assumed_hours_per_month"`
+	Disclaimer           string             `json:"disclaimer"`
+	SpotMultipliers      map[string]float64 `json:"spot_multipliers"`
+	SpotDisclaimer       string             `json:"spot_disclaimer"`
 }
 
 // catalog is loaded once at process start.
@@ -136,6 +138,27 @@ func Disclaimer() string {
 	return meta.Disclaimer
 }
 
+// SpotDisclaimer returns the catalog's curated spot/preemptible
+// disclaimer, rendered alongside the spot-savings line in Annex IV.
+func SpotDisclaimer() string {
+	if meta.SpotDisclaimer == "" {
+		return "Spot savings assume the workload tolerates preemption."
+	}
+	return meta.SpotDisclaimer
+}
+
+// SpotMultiplier returns the catalog's spot/preemptible multiplier for
+// `cloud` (lower-case "aws"|"azure"|"gcp"). A return of 0 means the
+// catalog has no entry, in which case LookupGPUCost will leave the
+// spot fields unset (zero) and the Annex IV renderer omits the spot
+// line entirely.
+func SpotMultiplier(cloud string) float64 {
+	if meta.SpotMultipliers == nil {
+		return 0
+	}
+	return meta.SpotMultipliers[strings.ToLower(cloud)]
+}
+
 // LookupGPUCost scans `content` for known GPU-instance-family prefixes
 // and returns the cost shape for the first one it finds. `content` is
 // expected to be lower-cased by the caller (Terraform / Helm parsers
@@ -149,7 +172,7 @@ func LookupGPUCost(content string) *types.FinOpsCost {
 		for prefix, entry := range entries {
 			if strings.Contains(content, prefix) {
 				hours := float64(AssumedHoursPerMonth())
-				return &types.FinOpsCost{
+				out := &types.FinOpsCost{
 					InstanceFamily: prefix,
 					Cloud:          cloudDisplay(cloud),
 					HourlyUSDLow:   entry.HourlyUSDLow,
@@ -158,6 +181,14 @@ func LookupGPUCost(content string) *types.FinOpsCost {
 					MonthlyUSDHigh: entry.HourlyUSDHigh * hours,
 					Description:    entry.Description,
 				}
+				if mult := SpotMultiplier(cloud); mult > 0 {
+					out.SpotMultiplier = mult
+					out.SpotHourlyUSDLow = entry.HourlyUSDLow * mult
+					out.SpotHourlyUSDHigh = entry.HourlyUSDHigh * mult
+					out.SpotMonthlyUSDLow = out.MonthlyUSDLow * mult
+					out.SpotMonthlyUSDHigh = out.MonthlyUSDHigh * mult
+				}
+				return out
 			}
 		}
 	}

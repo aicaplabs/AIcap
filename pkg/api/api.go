@@ -5,12 +5,14 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"database/sql"
+	_ "embed"
 	"encoding/hex"
 	"encoding/json"
 	"io"
 	"log/slog"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -25,6 +27,9 @@ import (
 	"github.com/stripe/stripe-go/v79/checkout/session"
 	"github.com/stripe/stripe-go/v79/webhook"
 )
+
+//go:embed openapi.json
+var openapiJSON []byte
 
 // RegisterRoutes wires all AIcap HTTP handlers onto `mux`. `db` may be nil in
 // local/headless mode — in that case the SaaS-only endpoints short-circuit to
@@ -88,6 +93,20 @@ func RegisterRoutes(mux *http.ServeMux, db *sql.DB, isCloudSaaS bool) {
 	mux.HandleFunc("/livez", livez)
 	mux.HandleFunc("/readyz", readyz)
 	mux.HandleFunc("/healthz", readyz)
+
+	// --- OpenAPI spec (Wave 11) --------------------------------------------
+	// Static document describing the public HTTP surface. The CLI uses it
+	// for client generation; auditors use it to confirm route + auth
+	// shape. Cached for 1h since the spec changes only on deploy.
+	mux.HandleFunc("/api/openapi.json", func(w http.ResponseWriter, r *http.Request) {
+		cors(w, r)
+		if r.Method == http.MethodOptions {
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Cache-Control", "public, max-age=3600")
+		w.Write(openapiJSON)
+	})
 
 	// --- Local scan (dev only) ----------------------------------------------
 	// /api/scan runs a filesystem scan on the server's working directory. That
@@ -192,18 +211,47 @@ func RegisterRoutes(mux *http.ServeMux, db *sql.DB, isCloudSaaS bool) {
 				return
 			}
 			if !onTrial {
+				// Single round-trip for the count + the oldest in-window
+				// timestamp — the oldest scan in the rolling window is
+				// what aged-out-time `X-RateLimit-Reset` keys off.
 				var recent int
-				if err := db.QueryRow(
-					`SELECT COUNT(*) FROM proof_drills
-					 WHERE user_id = $1 AND created_at > NOW() - INTERVAL '30 days'`,
+				var oldestUnix sql.NullInt64
+				if err := db.QueryRow(`
+					SELECT COUNT(*),
+					       COALESCE(EXTRACT(EPOCH FROM MIN(created_at))::BIGINT, 0)
+					FROM proof_drills
+					WHERE user_id = $1 AND created_at > NOW() - INTERVAL '30 days'`,
 					userID,
-				).Scan(&recent); err != nil {
+				).Scan(&recent, &oldestUnix); err != nil {
 					httplog.From(r.Context()).Error("rate-limit check failed",
 						slog.String("user_id", userID), slog.Any("error", err))
 					http.Error(w, "Internal server error", http.StatusInternalServerError)
 					return
 				}
-				if recent >= 10 {
+				const freeLimit = 10
+				// Reset = oldest scan in the rolling 30-day window aging
+				// out (i.e. when one quota slot opens up). When no scans
+				// have been made yet, the reset point is "right now" —
+				// the user can proceed immediately.
+				reset := time.Now().Unix()
+				if oldestUnix.Valid && oldestUnix.Int64 > 0 {
+					reset = oldestUnix.Int64 + int64(30*24*60*60)
+				}
+				// Headers report state AFTER this request, matching the
+				// convention CI tooling expects (GitHub, Cloudflare,
+				// Stripe): if the request will be admitted, the slot it
+				// consumes is already deducted from Remaining.
+				remaining := freeLimit - recent
+				if recent < freeLimit {
+					remaining = freeLimit - recent - 1
+				}
+				if remaining < 0 {
+					remaining = 0
+				}
+				w.Header().Set("X-RateLimit-Limit", strconv.Itoa(freeLimit))
+				w.Header().Set("X-RateLimit-Remaining", strconv.Itoa(remaining))
+				w.Header().Set("X-RateLimit-Reset", strconv.FormatInt(reset, 10))
+				if recent >= freeLimit {
 					http.Error(w, "Payment Required: Free tier limit of 10 cloud syncs per 30 days reached. Please upgrade to Pro.", http.StatusPaymentRequired)
 					return
 				}

@@ -249,6 +249,12 @@ func PerformScan(scanDir string) types.AIBOM {
 	// `omitempty` on the JSON tag drops it from output.
 	bom.FinOpsCostEstimate = finops.EstimateBOMCost(bom)
 
+	// Wave 11: build rightsizing recommendations for inference-only
+	// workloads running on training-class GPUs. Pure derivation from
+	// the BOM we just assembled — returns nil when training signals
+	// were detected or no candidate finding matched.
+	bom.FinOpsRecommendations = finops.BuildRightsizingRecommendations(bom)
+
 	// Determine overall compliance posture based on findings
 	bom.Compliance = "Passed"
 	for i, dep := range bom.Dependencies {
