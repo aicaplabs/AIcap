@@ -1,0 +1,27 @@
+# Local state — contains plaintext secrets. NEVER commit.
+*.tfstate
+*.tfstate.*
+*.tfstate.backup
+
+# Plan files — also may leak secret values.
+*.tfplan
+*.plan
+
+# Variable files holding secrets. Only the .example template is checked in.
+*.tfvars
+!*.tfvars.example
+
+# Provider plugin cache. The lockfile (.terraform.lock.hcl) IS checked in
+# so collaborators get the same provider versions.
+.terraform/
+.terraform.tfstate.lock.info
+
+# Crash logs.
+crash.log
+crash.*.log
+
+# Local override files for experimentation.
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json

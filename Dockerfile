@@ -5,7 +5,7 @@
 # us glibc (lib/pq is CGO-free so we could use "static", but "base" keeps us
 # one debug shell away from troubleshooting without re-pushing an image).
 
-ARG GO_VERSION=1.23
+ARG GO_VERSION=1.26
 FROM golang:${GO_VERSION}-bookworm AS builder
 WORKDIR /src
 
