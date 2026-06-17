@@ -1,0 +1,49 @@
+# Copy this file to terraform.tfvars and fill in the real values.
+# terraform.tfvars is gitignored — NEVER commit it.
+#
+#   cp terraform.tfvars.example terraform.tfvars
+#   $EDITOR terraform.tfvars
+
+# --- Placement -----------------------------------------------------------
+
+# Find this in the Scaleway console: top-left project switcher → project
+# name → "Settings" tab → Project ID.
+project_id = "00000000-0000-0000-0000-000000000000"
+
+# Default is fr-par (Paris). Don't change unless you have a specific reason.
+# region = "fr-par"
+# zone   = "fr-par-1"
+
+# --- Image ---------------------------------------------------------------
+
+# Tag to deploy. "latest" while iterating; pin to v1.1.0 / v1.2.0 in prod.
+# image_tag = "latest"
+
+# --- Scaling -------------------------------------------------------------
+
+# Free-tier defaults (scale-to-zero). Uncomment when paying customers arrive:
+# min_scale = 1
+# max_scale = 3
+
+# --- App config ----------------------------------------------------------
+
+# CORS allowlist for the frontend. Use the actual frontend URL.
+vite_frontend_url = "https://aicap.vercel.app,https://*.vercel.app"
+
+# Override only if you've created your own Stripe price.
+# stripe_price_id = "price_1Pdtg1E5iL2Zl43n5G4YhI9t"
+
+# --- Secrets — copy from your current Render env --------------------------
+# Render dashboard → aicap service → Environment tab.
+# These are PLACEHOLDERS. Put the real values in terraform.tfvars (gitignored),
+# NOT in this file — this template is committed to git.
+
+supabase_db_url       = "postgresql://postgres.xxxx:password@aws-0-eu-west-1.pooler.supabase.com:6543/postgres?sslmode=require"
+supabase_jwt_secret   = "your-supabase-jwt-secret-from-supabase-dashboard"
+stripe_secret_key     = "sk_live_or_sk_test_xxxxxxxxxxxxxxxxxxxx"
+
+# Optional — leave empty for now. The /api/verify-checkout fallback handles
+# new subscriptions without webhook delivery. Wire this up in the Stripe
+# dashboard BEFORE your first paying customer (otherwise cancellations and
+# payment failures silently keep them on the Pro tier).
+stripe_webhook_secret = ""
