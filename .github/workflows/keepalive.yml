@@ -1,0 +1,69 @@
+name: Supabase Keep-Alive
+
+# Why this exists
+# ---------------
+# The backend runs on Scaleway Serverless Containers with min_scale=0
+# (scale-to-zero) and the database on the Supabase free tier, which PAUSES a
+# project after 7 days of inactivity. A paused DB fails the container's startup
+# db.Ping() and the backend won't boot.
+#
+# An in-app keep-alive can't solve this: when the container is idle it scales to
+# zero, so any in-process pinger stops too. The wake-up has to come from OUTSIDE
+# the thing that sleeps — hence this scheduled GitHub Action.
+#
+# Hitting /readyz does double duty:
+#   - /readyz runs db.Ping() → real DB activity → resets the 7-day pause timer
+#   - a non-200 means the whole stack is unhealthy → this workflow fails loudly,
+#     giving us a daily canary before a customer ever hits the problem.
+#
+# Cadence: daily gives a 7x margin against the 7-day pause window, and costs
+# ~45 vCPU-seconds/month against the 400k free-tier allowance (negligible).
+
+on:
+  schedule:
+    # 06:17 UTC daily. Off the top of the hour on purpose — GitHub delays cron
+    # jobs scheduled at :00 under load.
+    - cron: '17 6 * * *'
+  # Lets you run it on demand from the Actions tab (e.g. right after a deploy).
+  workflow_dispatch:
+
+# If a run is somehow still going when the next fires, don't stack them.
+concurrency:
+  group: keepalive
+  cancel-in-progress: false
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping /readyz (wakes container + keeps Supabase alive)
+        env:
+          # Override by setting an Actions repo variable BACKEND_HEALTH_URL
+          # (Settings → Secrets and variables → Actions → Variables) if the
+          # backend moves to a custom domain like https://api.aicap.eu/readyz.
+          HEALTH_URL: ${{ vars.BACKEND_HEALTH_URL || 'https://aicap9ceb68db-aicap-backend.functions.fnc.fr-par.scw.cloud/readyz' }}
+        run: |
+          set -euo pipefail
+          echo "Pinging $HEALTH_URL"
+
+          # Retry to absorb the cold start (scale-from-zero is ~2-4s, but the
+          # first request after a long idle can occasionally take longer).
+          attempt=0
+          max_attempts=5
+          code=000
+          while [ "$attempt" -lt "$max_attempts" ]; do
+            attempt=$((attempt + 1))
+            code=$(curl -s -o /tmp/body -w '%{http_code}' --max-time 60 "$HEALTH_URL" || echo 000)
+            echo "Attempt $attempt/$max_attempts → HTTP $code"
+            if [ "$code" = "200" ]; then
+              echo "Backend healthy. Response body:"
+              cat /tmp/body
+              exit 0
+            fi
+            sleep 10
+          done
+
+          echo "::error::Backend did not return 200 after $max_attempts attempts (last: HTTP $code)."
+          echo "Last response body:"
+          cat /tmp/body || true
+          exit 1
