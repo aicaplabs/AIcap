@@ -22,7 +22,7 @@ jobs:
         continue-on-error: true
         env:
           AICAP_API_KEY: ${{ secrets.AICAP_API_KEY }}
-          AICAP_API_URL: "https://aicap.onrender.com/api/save-proof"
+          AICAP_API_URL: "https://aicap9ceb68db-aicap-backend.functions.fnc.fr-par.scw.cloud/api/save-proof"
         run: |
           go build -o aicap .
           ./aicap --cli .
