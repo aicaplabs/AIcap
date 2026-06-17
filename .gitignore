@@ -1,2 +1,6 @@
+# Build artifacts
 aicap-linux-amd64
-/documentation
+aicap.exe
+
+# Documentation is tracked, but CI/test log artifacts dropped in there are not.
+/documentation/*.log

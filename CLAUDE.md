@@ -2,9 +2,11 @@
 
 ## What this project is
 **AIcap** — Continuous AI-BOM & Compliance Scanner for the EU AI Act.
-- Go 1.23 backend + Supabase PostgreSQL + Stripe billing
+- Go 1.26 backend + Supabase PostgreSQL + Stripe billing
 - React/Vite frontend (single-page, no router)
-- Deployed on Render (backend) + Vercel or Render (frontend)
+- **EU-hosted (Wave 13):** backend on Scaleway Serverless Containers (`fr-par`, Paris);
+  database on Supabase (`eu-west-1`, Ireland); frontend on Vercel. All persisted
+  data stays within the EU.
 - GitHub Action (`istrategeorge/AIcap@v1.0.0-beta`) runs the CLI scanner in CI pipelines
 
 ## Repo layout
@@ -249,6 +251,35 @@ Production-grade Helm chart at `deploy/helm/aicap/` — `helm install aicap ./de
 - **Tests** — 27 new: 16 in `layer_test.go` (model-weight detection per extension, Python dist-info, whiteout skipping, oversized-entry cap, path predicates, field extraction); 4 in `imagescan_test.go` (tarball round-trip, registry httptest, partial-failure); 5 in `main_test.go` (`parseCLIArgs` scenarios including forward-compat); 2 in `scanner_test.go` (§ 2(d) render toggle).
 
 - **No backwards-compatibility shims** — `bom.ScannedImages` is omitempty; pipelines without `--image` see identical behavior to v1.1.0.
+
+### Wave 13 (shipped — EU data residency: Render → Scaleway)
+
+- **Backend moved off Render (US) to Scaleway Serverless Containers (`fr-par`, Paris).**
+  Database was already on Supabase `eu-west-1` (Ireland), so no DB migration was
+  needed — only the compute layer moved. All persisted data now resides in the EU.
+- **`deploy/terraform/scaleway/`** — Terraform module provisioning a private
+  Container Registry namespace (`rg.fr-par.scw.cloud/aicap`), a Serverless
+  Container namespace, and the backend container. Secrets via `terraform.tfvars`
+  (gitignored); non-secret config via `environment_variables`.
+- **Free-tier posture** — `min_scale = 0` (scale-to-zero) keeps the deployment
+  inside Scaleway's free allowance (400k vCPU-s + 1.6M GB-s/month) while there
+  are no clients. Bump `min_scale = 1` / `max_scale = 3` in tfvars when paying
+  customers arrive (~€20–25/mo, no cold starts). CPU:memory must satisfy
+  `mem ∈ [cpu, 4·cpu]`; we run 512 mvCPU / 512 MB.
+- **Scaleway gotchas baked into the module** — `PORT` is a reserved env var
+  (injected from the `port` field, must not be set manually); `memory_limit_bytes`
+  replaced the deprecated `memory_limit`; registry namespace creation needs an
+  org-scoped `ContainerRegistryFullAccess` IAM rule (project scope is insufficient).
+- **Image build** — Dockerfile `GO_VERSION` bumped 1.23 → 1.26 to match `go.mod`
+  (`go 1.26.0`). Build + push: see `deploy/terraform/scaleway/README.md`.
+- **Backend URL** — `https://aicap9ceb68db-aicap-backend.functions.fnc.fr-par.scw.cloud`
+  (the free `.scw.cloud` subdomain). Frontend `VITE_API_URL` on Vercel points here.
+  A custom domain (`api.aicap.eu` recommended) is a deferred launch-time task.
+- **Data-residency statement** — `documentation/data-residency.md` documents where
+  each data class lives, for enterprise/DPA due diligence.
+- **Known pre-launch risk** — Supabase free tier auto-pauses on inactivity; a
+  paused DB fails the container's startup `db.Ping()` and the backend won't boot.
+  Before go-live: move to a paid Supabase tier (no auto-pause) or add a keep-alive.
 
 ## Wave 3b/3c deployment checklist (run before merging to main)
 - [x] RLS can stay as-is after Wave 3c — the frontend no longer reads `api_keys`
