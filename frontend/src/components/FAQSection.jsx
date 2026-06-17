@@ -24,7 +24,11 @@ const FAQS = [
   },
   {
     q: 'Where is my data stored?',
-    a: 'Cloud SaaS: Supabase (Postgres), region configurable. Enterprise / self-host: anywhere you can run the Helm chart and a Postgres — Hetzner, Scaleway, OVH, AWS Frankfurt, an air-gapped on-prem cluster. The CLI never sends data anywhere unless AICAP_API_KEY is set.',
+    a: 'Cloud SaaS: entirely within the EU. The database (Supabase Postgres) runs in eu-west-1 (Ireland) and the backend compute (Scaleway Serverless Containers) runs in fr-par (Paris, France). No persisted data leaves the EU. Enterprise / self-host: anywhere you can run the Helm chart and a Postgres — Hetzner, Scaleway, OVH, AWS Frankfurt, an air-gapped on-prem cluster. The CLI never sends data anywhere unless AICAP_API_KEY is set.',
+  },
+  {
+    q: 'Is AIcap EU-hosted for data residency?',
+    a: 'Yes. As of the EU residency migration, all SaaS infrastructure is EU-based: backend compute on Scaleway (a French company, data centre in Paris) and the database on Supabase in Ireland (eu-west-1). For a product whose job is EU AI Act compliance, the hosting matches the claim — your AI-BOMs and audit ledgers are processed and stored by EU-incorporated providers inside the EU. A full breakdown of where each data class lives is available in our data-residency statement for enterprise due diligence.',
   },
   {
     q: 'What happens if my Stripe payment fails?',
