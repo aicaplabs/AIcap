@@ -114,7 +114,11 @@ func main() {
 			fmt.Println("\n[+] Pro API Key detected. Syncing AI-BOM and Proof Drill to AIcap Cloud...")
 			apiURL := os.Getenv("AICAP_API_URL")
 			if apiURL == "" {
-				apiURL = "https://aicap.onrender.com/api/save-proof"
+				// EU-hosted backend (Wave 13 — Scaleway, fr-par/Paris).
+				// Overridable via AICAP_API_URL. Switch to the api.aicap.eu
+				// custom domain here once it's registered, so a binary
+				// release pins the stable domain rather than the .scw.cloud URL.
+				apiURL = "https://aicap9ceb68db-aicap-backend.functions.fnc.fr-par.scw.cloud/api/save-proof"
 			}
 			req, err := http.NewRequest("POST", apiURL, bytes.NewBuffer(bomJSON))
 			if err == nil {

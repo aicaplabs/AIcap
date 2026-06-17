@@ -20,7 +20,11 @@ jobs:
         continue-on-error: true
         env:
           AICAP_API_KEY: ${{ secrets.AICAP_API_KEY }} # Or a dedicated staging key
-          AICAP_API_URL: "https://aicap-staging.onrender.com/api/save-proof"
+          # NOTE: the old Render staging backend is gone. Wave 13 consolidated
+          # onto a single EU backend (Scaleway, fr-par), so development-branch
+          # scans now sync to the same backend as production. Stand up a
+          # separate Scaleway container + key here if you want isolation again.
+          AICAP_API_URL: "https://aicap9ceb68db-aicap-backend.functions.fnc.fr-par.scw.cloud/api/save-proof"
         run: |
           go build -o aicap .
           ./aicap --cli .
