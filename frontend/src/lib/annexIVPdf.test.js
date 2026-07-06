@@ -93,6 +93,12 @@ describe('markdownToHtml', () => {
     expect(html.match(/<li>/g)).toHaveLength(2);
     expect(html).not.toContain('<p>');
   });
+
+  it('renders bold spanning a wrapped list-item line', () => {
+    const html = markdownToHtml('- PURLs matter; **weight files have\n  no CVE identifiers**, so beware.');
+    expect(html).toContain('<strong>weight files have no CVE identifiers</strong>');
+    expect(html).not.toContain('**');
+  });
 });
 
 describe('buildPrintDocument', () => {
