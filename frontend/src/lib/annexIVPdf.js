@@ -74,6 +74,22 @@ export function markdownToHtml(markdown) {
       continue;
     }
 
+    // Fenced code blocks (``` ... ```). Content is escaped verbatim —
+    // no inline formatting applies inside a fence.
+    if (/^```/.test(line.trim())) {
+      flushPara();
+      closeListsTo(0);
+      const code = [];
+      i++;
+      while (i < lines.length && !/^```/.test(lines[i].trim())) {
+        code.push(lines[i]);
+        i++;
+      }
+      i++; // consume closing fence (or EOF)
+      out.push(`<pre><code>${escapeHtml(code.join('\n'))}</code></pre>`);
+      continue;
+    }
+
     // Headings.
     const heading = line.match(/^(#{1,3}) (.*)$/);
     if (heading) {
@@ -181,6 +197,9 @@ const PRINT_CSS = `
     font-family: Consolas, "Courier New", monospace; font-size: 9pt;
     background: #f1f5f9; border: 0.5pt solid #e2e8f0; border-radius: 2pt; padding: 0.5pt 3pt;
   }
+  pre { background: #f1f5f9; border: 0.5pt solid #e2e8f0; border-radius: 3pt;
+        padding: 6pt 8pt; overflow-x: auto; page-break-inside: avoid; }
+  pre code { background: none; border: none; padding: 0; }
   table { border-collapse: collapse; width: 100%; font-size: 8.5pt; margin: 8pt 0; page-break-inside: avoid; }
   th, td { border: 0.75pt solid #cbd5e1; padding: 4pt 6pt; text-align: left; vertical-align: top; }
   th { background: #eef2ff; color: #312e81; }

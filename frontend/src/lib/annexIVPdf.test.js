@@ -80,6 +80,13 @@ describe('markdownToHtml', () => {
     expect(html).not.toContain('**');
   });
 
+  it('renders fenced code blocks with escaped, format-free content', () => {
+    const html = markdownToHtml('```yaml\nuses: istrategeorge/AIcap@v1.2.0\nkey: **not bold** <tag>\n```');
+    expect(html).toContain('<pre><code>uses: istrategeorge/AIcap@v1.2.0');
+    expect(html).toContain('**not bold** &lt;tag&gt;');
+    expect(html).not.toContain('<strong>');
+  });
+
   it('folds indented continuation lines into the previous list item', () => {
     const html = markdownToHtml('- Account data: deleted\n  within 30 days.\n- Logs: 30 days.');
     expect(html).toContain('<li>Account data: deleted within 30 days.</li>');
