@@ -7,7 +7,7 @@
 - **EU-hosted (Wave 13):** backend on Scaleway Serverless Containers (`fr-par`, Paris);
   database on Supabase (`eu-west-1`, Ireland); frontend on Vercel. All persisted
   data stays within the EU.
-- GitHub Action (`istrategeorge/AIcap@v1.0.0-beta`) runs the CLI scanner in CI pipelines
+- GitHub Action (`istrategeorge/AIcap@v1.2.0`) runs the CLI scanner in CI pipelines
 
 ## Repo layout
 ```
