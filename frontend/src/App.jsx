@@ -12,6 +12,12 @@ import CheckoutProcessing from './components/CheckoutProcessing.jsx';
 import Paywall from './components/Paywall.jsx';
 import ProDashboard from './components/ProDashboard.jsx';
 import LocalDashboard from './components/LocalDashboard.jsx';
+import PublicReport from './components/PublicReport.jsx';
+
+// Share links minted by /api/share-report land on /?report=<token>.
+// Resolved once at module load: the public report view bypasses the
+// entire auth state machine (no session, no Supabase listener needed).
+const publicReportToken = new URLSearchParams(window.location.search).get('report');
 
 // Default state before fetch.
 const defaultScanData = {
@@ -29,7 +35,15 @@ const defaultScanData = {
 // `components/`; anything that talks to the backend lives under
 // `lib/`. The split mirrors how the App actually thinks: a small set
 // of state (auth, scan, history) drives a small set of view branches.
+//
+// The public shared-report view short-circuits everything: a recipient
+// holding a share link is not a user, so no auth machinery mounts.
 export default function App() {
+  if (publicReportToken) return <PublicReport token={publicReportToken} />;
+  return <Dashboard />;
+}
+
+function Dashboard() {
   // --- Scan / DB / history state (local-dev path)
   const [scanData, setScanData] = useState(defaultScanData);
   const [historyData, setHistoryData] = useState([]);

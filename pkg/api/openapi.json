@@ -215,6 +215,46 @@
         }
       }
     },
+    "/api/share-report": {
+      "post": {
+        "tags": ["dashboard"],
+        "summary": "Mint (or re-return) the public share token for one of the caller's proof drills.",
+        "description": "Idempotent: sharing an already-shared report returns the existing token with 200. The token is a 256-bit capability — anyone holding it can read that one report via `/api/public/report`.",
+        "security": [{"supabaseJWT": []}],
+        "requestBody": {
+          "required": true,
+          "content": {"application/json": {"schema": {"type": "object", "properties": {"hash": {"type": "string", "description": "crypto_hash of the proof drill to share."}}, "required": ["hash"]}}}
+        },
+        "responses": {
+          "201": {"description": "Token minted.", "content": {"application/json": {"schema": {"type": "object", "properties": {"token": {"type": "string", "description": "64 lowercase hex chars."}}}}}},
+          "200": {"description": "Report was already shared; existing token returned."},
+          "404": {"description": "No drill matched the hash for this user."},
+          "401": {"description": "Missing or invalid JWT."}
+        }
+      },
+      "delete": {
+        "tags": ["dashboard"],
+        "summary": "Revoke the share token; the public link stops resolving immediately.",
+        "security": [{"supabaseJWT": []}],
+        "parameters": [{"name": "hash", "in": "query", "required": true, "schema": {"type": "string"}}],
+        "responses": {
+          "204": {"description": "Share revoked."},
+          "404": {"description": "No drill matched the hash for this user."},
+          "401": {"description": "Missing or invalid JWT."}
+        }
+      }
+    },
+    "/api/public/report": {
+      "get": {
+        "tags": ["dashboard"],
+        "summary": "Resolve a shared report token. Unauthenticated — the token is the credential.",
+        "parameters": [{"name": "token", "in": "query", "required": true, "schema": {"type": "string", "pattern": "^[0-9a-f]{64}$"}}],
+        "responses": {
+          "200": {"description": "Report found.", "content": {"application/json": {"schema": {"type": "object", "properties": {"markdown": {"type": "string"}, "commitSha": {"type": "string"}, "cryptoHash": {"type": "string"}, "createdAt": {"type": "string", "format": "date-time"}, "projectName": {"type": "string"}}}}}},
+          "404": {"description": "Token malformed, unknown, or revoked (indistinguishable by design)."}
+        }
+      }
+    },
     "/api/me": {
       "get": {
         "tags": ["dashboard"],
