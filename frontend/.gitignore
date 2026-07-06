@@ -28,3 +28,6 @@ test-results/
 playwright-report/
 blob-report/
 playwright/.cache/
+
+# Generated SEO guide pages (built by scripts/build-guides.mjs)
+public/guides/
