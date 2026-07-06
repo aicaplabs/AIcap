@@ -7,7 +7,7 @@
 - **EU-hosted (Wave 13):** backend on Scaleway Serverless Containers (`fr-par`, Paris);
   database on Supabase (`eu-west-1`, Ireland); frontend on Vercel. All persisted
   data stays within the EU.
-- GitHub Action (`istrategeorge/AIcap@v1.0.0-beta`) runs the CLI scanner in CI pipelines
+- GitHub Action (`istrategeorge/AIcap@v1.2.0`) runs the CLI scanner in CI pipelines
 
 ## Repo layout
 ```
@@ -43,12 +43,13 @@ Two distinct auth schemes, each for a different caller:
 
 | Caller | Scheme | Routes |
 |--------|--------|--------|
-| Browser (dashboard) | Supabase session JWT (`RequireSupabaseJWT`) | `/api/history`, `/api/proof`, `/api/verify-chain`, `/api/create-checkout-session`, `/api/generate-key`, `/api/rotate-key`, `/api/verify-checkout`, `/api/me` |
+| Browser (dashboard) | Supabase session JWT (`RequireSupabaseJWT`) | `/api/history`, `/api/proof`, `/api/verify-chain`, `/api/share-report`, `/api/create-checkout-session`, `/api/generate-key`, `/api/rotate-key`, `/api/verify-checkout`, `/api/me` |
 | CI pipeline | API key hash (`RequireAPIKey`) | `/api/save-proof` |
+| Anyone with a share token | none — the 256-bit token is the credential | `/api/public/report` |
 
 **API keys are hashed at rest** (SHA-256, column `token_hash`). The plaintext is returned exactly once from `/api/generate-key` or `/api/rotate-key` and never stored. `HashAPIKey(raw)` in `pkg/auth` is the canonical hash function.
 
-## Database schema (migrations 00001–00010)
+## Database schema (migrations 00001–00013)
 ```
 api_keys:       id, user_id (UNIQUE), token_hash, stripe_customer_id,
                 subscription_tier, scans_this_month, created_at
@@ -280,6 +281,32 @@ Production-grade Helm chart at `deploy/helm/aicap/` — `helm install aicap ./de
 - **Known pre-launch risk** — Supabase free tier auto-pauses on inactivity; a
   paused DB fails the container's startup `db.Ping()` and the backend won't boot.
   Before go-live: move to a paid Supabase tier (no auto-pause) or add a keep-alive.
+
+### Wave 15 (shipped — conversion & distribution features, July 2026)
+
+Monetization-focused wave; Wave 14 (SEO content + Marketplace listing) remains open.
+
+- **Annex IV PDF export** — `frontend/src/lib/annexIVPdf.js`: zero-dependency
+  markdown→print-HTML renderer + hidden-iframe `exportAnnexIVPdf` ("Save as
+  PDF"). Provenance footer carries the ledger hash + AIcap branding. All
+  content HTML-escaped (dep names are attacker-controlled). Export buttons in
+  `AnnexIVPreview` and the public report page.
+- **Sample report landing section** — `SampleReportSection.jsx`: full Annex IV
+  sample for a fictional high-risk hiring system on the public landing page.
+- **Deadline countdown** — `lib/deadline.js` + badge in `LandingAuth`; counts
+  down to 2 Aug 2026, flips to "in force" copy after.
+- **CLI README badge** — `badgeMarkdown` in `main.go` prints a shields.io
+  snippet after each scan (passing / action required / policy breach).
+- **Shareable report links** — migration 00013 adds `proof_drills.share_token`
+  (partial unique index). `POST /api/share-report {hash}` mints a 256-bit hex
+  capability token (idempotent: 200 + same token on re-share); `DELETE ?hash=`
+  revokes. Public `GET /api/public/report?token=` resolves it unauthenticated
+  (malformed/unknown/revoked all 404). Frontend: `?report=<token>` URL param
+  renders `PublicReport.jsx` (bypasses the entire auth state machine); Share
+  button in `AnnexIVPreview` (Pro dashboard only) copies the link.
+- **Tests** — 5 integration (`TestShareReport_*`, `TestPublicReport_*`),
+  13 frontend unit (annexIVPdf, deadline, PublicReport), 3 Go unit
+  (`TestBadgeMarkdown_*`).
 
 ## Wave 3b/3c deployment checklist (run before merging to main)
 - [x] RLS can stay as-is after Wave 3c — the frontend no longer reads `api_keys`

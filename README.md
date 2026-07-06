@@ -2,7 +2,7 @@
 
 [![GitHub Marketplace](https://img.shields.io/badge/Marketplace-AIcap-indigo.svg)](https://github.com/marketplace/actions/continuous-ai-bom-scanner)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
-[![Go Tests](https://img.shields.io/badge/tests-47%20passing-brightgreen.svg)]()
+[![Go Tests](https://img.shields.io/badge/tests-passing-brightgreen.svg)]()
 [![CycloneDX](https://img.shields.io/badge/SBOM-CycloneDX%201.5-orange.svg)]()
 [![OWASP ML](https://img.shields.io/badge/OWASP-ML%20Top%2010-red.svg)]()
 
@@ -63,7 +63,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Run AIcap Compliance Scan
-        uses: istrategeorge/AIcap@v1.0.0-alpha
+        uses: istrategeorge/AIcap@v1.2.0
         with:
           api-key: ${{ secrets.AICAP_API_KEY }}
           scan-directory: '.'
