@@ -6,7 +6,7 @@ import React from 'react';
 export default function MarketingFooter() {
   return (
     <footer className="mt-24 pt-10 border-t border-slate-200 pb-10">
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-8 max-w-5xl mx-auto text-sm">
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-8 max-w-5xl mx-auto text-sm">
         <div>
           <h3 className="font-bold text-slate-900 mb-3">Product</h3>
           <ul className="space-y-2 text-slate-600">
@@ -41,6 +41,15 @@ export default function MarketingFooter() {
             <li>CycloneDX 1.5</li>
             <li>OWASP ML Top 10</li>
             <li>MITRE ATLAS</li>
+          </ul>
+        </div>
+        <div>
+          <h3 className="font-bold text-slate-900 mb-3">Legal</h3>
+          <ul className="space-y-2 text-slate-600">
+            <li><a className="hover:text-indigo-600" href="/?page=terms">Terms of Service</a></li>
+            <li><a className="hover:text-indigo-600" href="/?page=privacy">Privacy Policy</a></li>
+            <li><a className="hover:text-indigo-600" href="/?page=dpa">DPA</a></li>
+            <li><a className="hover:text-indigo-600" href="/?page=security">Security</a></li>
           </ul>
         </div>
         <div>
