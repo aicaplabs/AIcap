@@ -73,6 +73,19 @@ describe('markdownToHtml', () => {
     const html = markdownToHtml('Scanned 5 files across 3 layers');
     expect(html).toContain('Scanned 5 files across 3 layers');
   });
+
+  it('renders bold spanning a hard-wrapped paragraph line', () => {
+    const html = markdownToHtml('For scan payloads, **you are the\ncontroller** under GDPR.');
+    expect(html).toContain('<strong>you are the controller</strong>');
+    expect(html).not.toContain('**');
+  });
+
+  it('folds indented continuation lines into the previous list item', () => {
+    const html = markdownToHtml('- Account data: deleted\n  within 30 days.\n- Logs: 30 days.');
+    expect(html).toContain('<li>Account data: deleted within 30 days.</li>');
+    expect(html.match(/<li>/g)).toHaveLength(2);
+    expect(html).not.toContain('<p>');
+  });
 });
 
 describe('buildPrintDocument', () => {
