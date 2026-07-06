@@ -164,4 +164,31 @@ ${guides
 });
 await writeFile(path.join(outDir, 'index.html'), indexHtml);
 
-console.log(`built ${guides.length} guide(s) + index → public/guides/`);
+// sitemap.xml + robots.txt at the site root — the landing page is an
+// SPA, so the guides are the crawlable surface; make sure crawlers can
+// enumerate them without depending on link discovery.
+const urls = [
+  { loc: `${SITE}/`, priority: '1.0' },
+  { loc: `${SITE}/guides/`, priority: '0.8' },
+  ...guides.map(g => ({
+    loc: `${SITE}/guides/${g.slug}.html`,
+    lastmod: g.date,
+    priority: '0.7',
+  })),
+];
+const sitemap = `<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+${urls
+    .map(
+      u => `  <url><loc>${u.loc}</loc>${u.lastmod ? `<lastmod>${u.lastmod}</lastmod>` : ''}<priority>${u.priority}</priority></url>`,
+    )
+    .join('\n')}
+</urlset>
+`;
+await writeFile(path.join(root, 'public', 'sitemap.xml'), sitemap);
+await writeFile(
+  path.join(root, 'public', 'robots.txt'),
+  `User-agent: *\nAllow: /\nSitemap: ${SITE}/sitemap.xml\n`,
+);
+
+console.log(`built ${guides.length} guide(s) + index + sitemap → public/`);

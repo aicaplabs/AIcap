@@ -46,6 +46,10 @@ export function markdownToHtml(markdown) {
   const out = [];
   let listDepth = 0; // number of currently open <ul>
   let para = [];
+  // Raw source of the most recently emitted <li>, so wrapped
+  // continuation lines can be folded in and the item re-rendered as a
+  // whole — inline formatting may span the wrap.
+  let lastLi = null; // { marker, raw }
 
   const flushPara = () => {
     if (para.length > 0) {
@@ -151,21 +155,22 @@ export function markdownToHtml(markdown) {
         marker = '<span class="check todo">&#9744;</span> ';
         content = content.slice(4);
       }
+      lastLi = { marker, raw: content };
       out.push(`<li>${marker}${renderInline(content)}</li>`);
       i++;
       continue;
     }
 
     // Indented continuation of a wrapped list item: fold it into the
-    // previous <li> instead of opening a stray paragraph. (Inline
-    // formatting must not span the wrap — the fold renders fragments
-    // independently.)
+    // previous <li> and re-render the item from its accumulated raw
+    // source, so inline formatting spanning the wrap still matches.
     if (
-      listDepth > 0 && /^\s+/.test(line) &&
+      listDepth > 0 && lastLi && /^\s+/.test(line) &&
       out.length > 0 && out[out.length - 1].endsWith('</li>')
     ) {
-      const prev = out.pop();
-      out.push(`${prev.slice(0, -'</li>'.length)} ${renderInline(line.trim())}</li>`);
+      out.pop();
+      lastLi.raw += ` ${line.trim()}`;
+      out.push(`<li>${lastLi.marker}${renderInline(lastLi.raw)}</li>`);
       i++;
       continue;
     }
