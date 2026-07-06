@@ -1,11 +1,32 @@
 import React, { useState } from 'react';
-import { Shield, CheckCircle } from 'lucide-react';
+import { Shield, CheckCircle, AlarmClock } from 'lucide-react';
 
 import { supabase } from '../lib/supabase.js';
+import { daysUntilAIAct } from '../lib/deadline.js';
 import SampleReportSection from './SampleReportSection.jsx';
 import PricingSection from './PricingSection.jsx';
 import FAQSection from './FAQSection.jsx';
 import MarketingFooter from './MarketingFooter.jsx';
+
+// Deadline urgency chip: counts down to 2 August 2026 (EU AI Act
+// application date) and flips to "in force" copy once it passes, so
+// the landing page never shows a stale countdown.
+function DeadlineBadge() {
+  const days = daysUntilAIAct();
+  if (days > 0) {
+    return (
+      <div className="inline-flex items-center gap-2 px-3 py-1 bg-amber-100 text-amber-800 text-sm font-bold rounded-full">
+        <AlarmClock className="w-4 h-4" />
+        {days} day{days === 1 ? '' : 's'} until EU AI Act obligations apply — 2 August 2026
+      </div>
+    );
+  }
+  return (
+    <div className="inline-flex items-center gap-2 px-3 py-1 bg-red-100 text-red-700 text-sm font-bold rounded-full">
+      <AlarmClock className="w-4 h-4" /> EU AI Act obligations are now in force
+    </div>
+  );
+}
 
 // Public landing page + login/signup form. Self-contained: owns its own
 // form state and the supabase signUp/signInWithPassword call. The App
@@ -37,7 +58,8 @@ export default function LandingAuth() {
 
         {/* Marketing Copy */}
         <div className="space-y-6">
-          <div className="inline-flex items-center gap-2 px-3 py-1 bg-indigo-100 text-indigo-700 text-sm font-bold rounded-full">
+          <DeadlineBadge />
+          <div className="inline-flex items-center gap-2 px-3 py-1 bg-indigo-100 text-indigo-700 text-sm font-bold rounded-full ml-2">
             <Shield className="w-4 h-4" /> EU AI Act Ready
           </div>
           <h2 className="text-4xl lg:text-5xl font-extrabold text-slate-900 leading-tight">
