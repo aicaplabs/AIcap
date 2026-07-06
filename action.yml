@@ -1,5 +1,5 @@
 name: "Continuous AI-BOM Scanner"
-description: "Automated EU AI Act compliance scanner. Detects AI models, dependencies, and FinOps risks."
+description: "EU AI Act compliance in CI: AI-BOM, risk register, and Annex IV documentation on every push."
 author: "AIcap"
 
 branding:
