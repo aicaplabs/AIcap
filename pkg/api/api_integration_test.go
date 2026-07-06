@@ -1579,3 +1579,164 @@ func TestMe_ReturnsTrial(t *testing.T) {
 		t.Errorf("expired trial: trialDaysRemaining = %d, want 0", d)
 	}
 }
+
+// --- Report sharing (Wave 15) ------------------------------------------------
+// POST /api/share-report mints a 256-bit capability token for one of the
+// caller's proof drills; GET /api/public/report resolves it without auth.
+
+// shareReport POSTs {hash} with the given JWT and returns (status, token).
+func shareReport(t *testing.T, srv *httptest.Server, jwt, hash string) (int, string) {
+	t.Helper()
+	b, _ := json.Marshal(map[string]string{"hash": hash})
+	req, _ := http.NewRequest(http.MethodPost, srv.URL+"/api/share-report", bytes.NewReader(b))
+	req.Header.Set("Authorization", "Bearer "+jwt)
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("share-report: %v", err)
+	}
+	defer resp.Body.Close()
+	var out map[string]string
+	_ = json.NewDecoder(resp.Body).Decode(&out)
+	return resp.StatusCode, out["token"]
+}
+
+func TestShareReport_MintAndResolvePublicly(t *testing.T) {
+	srv, db := setup(t)
+	userID := "00000000-0000-0000-0000-000000000200"
+	apiKey := seedAPIKey(t, db, userID, "pro")
+	saveProof(t, srv, apiKey, types.AIBOM{ProjectName: "demo/share", CommitSha: "share01"})
+
+	var hash string
+	if err := db.QueryRow(
+		`SELECT crypto_hash FROM proof_drills WHERE commit_sha = 'share01'`,
+	).Scan(&hash); err != nil {
+		t.Fatalf("lookup hash: %v", err)
+	}
+
+	jwt := mintJWT(t, userID, "share@example.com")
+	status, token := shareReport(t, srv, jwt, hash)
+	if status != http.StatusCreated {
+		t.Fatalf("share status = %d, want 201", status)
+	}
+	if len(token) != 64 {
+		t.Fatalf("token length = %d, want 64 hex chars", len(token))
+	}
+
+	// Idempotency: sharing again returns the SAME token with 200.
+	status2, token2 := shareReport(t, srv, jwt, hash)
+	if status2 != http.StatusOK || token2 != token {
+		t.Errorf("re-share = (%d, %q), want (200, same token)", status2, token2)
+	}
+
+	// Public resolution needs no Authorization header.
+	resp, err := http.Get(srv.URL + "/api/public/report?token=" + token)
+	if err != nil {
+		t.Fatalf("public get: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("public status = %d, want 200", resp.StatusCode)
+	}
+	var pub map[string]any
+	if err := json.NewDecoder(resp.Body).Decode(&pub); err != nil {
+		t.Fatalf("decode public: %v", err)
+	}
+	if pub["commitSha"] != "share01" {
+		t.Errorf("commitSha = %v, want share01", pub["commitSha"])
+	}
+	if pub["cryptoHash"] != hash {
+		t.Errorf("cryptoHash = %v, want %v", pub["cryptoHash"], hash)
+	}
+	if md, _ := pub["markdown"].(string); md == "" {
+		t.Error("markdown missing from public payload")
+	}
+	// The public payload must never leak tenant identity.
+	if _, leaked := pub["userId"]; leaked {
+		t.Error("public payload leaked userId")
+	}
+}
+
+func TestShareReport_TenantScoped(t *testing.T) {
+	srv, db := setup(t)
+	owner := "00000000-0000-0000-0000-000000000201"
+	apiKey := seedAPIKey(t, db, owner, "pro")
+	saveProof(t, srv, apiKey, types.AIBOM{ProjectName: "demo/scoped", CommitSha: "scoped01"})
+
+	var hash string
+	if err := db.QueryRow(
+		`SELECT crypto_hash FROM proof_drills WHERE commit_sha = 'scoped01'`,
+	).Scan(&hash); err != nil {
+		t.Fatalf("lookup hash: %v", err)
+	}
+
+	// A different authenticated user cannot share the owner's report.
+	intruder := mintJWT(t, "00000000-0000-0000-0000-000000000202", "intruder@example.com")
+	if status, _ := shareReport(t, srv, intruder, hash); status != http.StatusNotFound {
+		t.Errorf("cross-tenant share status = %d, want 404", status)
+	}
+}
+
+func TestShareReport_RequiresJWT(t *testing.T) {
+	srv, _ := setup(t)
+	b := bytes.NewBufferString(`{"hash":"whatever"}`)
+	resp, err := http.Post(srv.URL+"/api/share-report", "application/json", b)
+	if err != nil {
+		t.Fatalf("post: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Errorf("status = %d, want 401", resp.StatusCode)
+	}
+}
+
+func TestShareReport_RevokeKillsPublicLink(t *testing.T) {
+	srv, db := setup(t)
+	userID := "00000000-0000-0000-0000-000000000203"
+	apiKey := seedAPIKey(t, db, userID, "pro")
+	saveProof(t, srv, apiKey, types.AIBOM{ProjectName: "demo/revoke", CommitSha: "revoke01"})
+
+	var hash string
+	if err := db.QueryRow(
+		`SELECT crypto_hash FROM proof_drills WHERE commit_sha = 'revoke01'`,
+	).Scan(&hash); err != nil {
+		t.Fatalf("lookup hash: %v", err)
+	}
+
+	jwt := mintJWT(t, userID, "revoke@example.com")
+	_, token := shareReport(t, srv, jwt, hash)
+
+	req, _ := http.NewRequest(http.MethodDelete, srv.URL+"/api/share-report?hash="+hash, nil)
+	req.Header.Set("Authorization", "Bearer "+jwt)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("revoke: %v", err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("revoke status = %d, want 204", resp.StatusCode)
+	}
+
+	pub, err := http.Get(srv.URL + "/api/public/report?token=" + token)
+	if err != nil {
+		t.Fatalf("public get: %v", err)
+	}
+	pub.Body.Close()
+	if pub.StatusCode != http.StatusNotFound {
+		t.Errorf("post-revoke public status = %d, want 404", pub.StatusCode)
+	}
+}
+
+func TestPublicReport_MalformedTokenIs404(t *testing.T) {
+	srv, _ := setup(t)
+	for _, tok := range []string{"", "short", strings.Repeat("Z", 64), strings.Repeat("a", 63)} {
+		resp, err := http.Get(srv.URL + "/api/public/report?token=" + tok)
+		if err != nil {
+			t.Fatalf("get: %v", err)
+		}
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusNotFound {
+			t.Errorf("token %q: status = %d, want 404", tok, resp.StatusCode)
+		}
+	}
+}
