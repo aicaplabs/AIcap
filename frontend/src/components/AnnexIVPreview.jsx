@@ -1,7 +1,8 @@
 import React from 'react';
-import { Download } from 'lucide-react';
+import { Download, FileText } from 'lucide-react';
 
 import { buildAnnexIVMarkdown, downloadAnnexIV } from '../lib/annexIV.js';
+import { exportAnnexIVPdf } from '../lib/annexIVPdf.js';
 
 // Markdown preview pane shown beneath the dashboard. Two modes:
 //   - historical: a row was clicked in the audit ledger; show the
@@ -33,12 +34,23 @@ export default function AnnexIVPreview({ scanData, historicalProof, mode }) {
           <span className="text-xs font-mono text-slate-400">{label}</span>
           <span className={`text-xs px-2 py-1 rounded ${badgeClass}`}>{badgeText}</span>
         </div>
-        <button
-          onClick={() => downloadAnnexIV(markdown, historicalProof?.hash)}
-          className="text-xs flex items-center gap-1 text-slate-300 hover:text-white bg-slate-700 hover:bg-slate-600 px-3 py-1 rounded transition"
-        >
-          <Download className="w-3 h-3" /> Download
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => exportAnnexIVPdf(markdown, {
+              hash: historicalProof?.hash,
+              projectName: scanData?.projectName,
+            })}
+            className="text-xs flex items-center gap-1 text-white bg-indigo-600 hover:bg-indigo-500 px-3 py-1 rounded transition"
+          >
+            <FileText className="w-3 h-3" /> Export PDF
+          </button>
+          <button
+            onClick={() => downloadAnnexIV(markdown, historicalProof?.hash)}
+            className="text-xs flex items-center gap-1 text-slate-300 hover:text-white bg-slate-700 hover:bg-slate-600 px-3 py-1 rounded transition"
+          >
+            <Download className="w-3 h-3" /> Download
+          </button>
+        </div>
       </div>
       <div className="p-6 font-mono text-sm overflow-x-auto whitespace-pre">
         {markdown}

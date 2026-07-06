@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Shield, CheckCircle } from 'lucide-react';
 
 import { supabase } from '../lib/supabase.js';
+import SampleReportSection from './SampleReportSection.jsx';
 import PricingSection from './PricingSection.jsx';
 import FAQSection from './FAQSection.jsx';
 import MarketingFooter from './MarketingFooter.jsx';
@@ -123,6 +124,7 @@ export default function LandingAuth() {
         </div>
       </div>
 
+      <SampleReportSection />
       <PricingSection />
       <FAQSection />
       <MarketingFooter />

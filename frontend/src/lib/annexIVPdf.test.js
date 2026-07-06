@@ -1,0 +1,92 @@
+// Tests for the Annex IV PDF renderer (markdownToHtml + buildPrintDocument).
+//
+// The renderer only has to cover the markdown subset our own templates
+// emit (lib/annexIV.js + backend pkg/compliance), so the contract is:
+//   1. All report content is HTML-escaped (scanned repos control dep
+//      names — a malicious package name must never become live markup).
+//   2. Headings, bullets (nested), checkboxes, tables, bold/italic/code
+//      all render.
+//   3. Underscores inside code spans never trigger italics.
+//   4. The print document carries the provenance footer (ledger hash).
+import { describe, it, expect } from 'vitest';
+
+import { markdownToHtml, buildPrintDocument } from './annexIVPdf.js';
+
+describe('markdownToHtml', () => {
+  it('escapes HTML in content (dep names are attacker-controlled)', () => {
+    const html = markdownToHtml('- **<script>alert(1)</script>** (v1.0)');
+    expect(html).not.toContain('<script>');
+    expect(html).toContain('&lt;script&gt;');
+  });
+
+  it('renders heading levels 1-3', () => {
+    const html = markdownToHtml('# Title\n## Section\n### Sub');
+    expect(html).toContain('<h1>Title</h1>');
+    expect(html).toContain('<h2>Section</h2>');
+    expect(html).toContain('<h3>Sub</h3>');
+  });
+
+  it('renders bold, italic, and code spans', () => {
+    const html = markdownToHtml('**Resource:** `p4d.24xlarge` _(source: terraform)_');
+    expect(html).toContain('<strong>Resource:</strong>');
+    expect(html).toContain('<code>p4d.24xlarge</code>');
+    expect(html).toContain('<em>(source: terraform)</em>');
+  });
+
+  it('does not italicise snake_case inside code spans', () => {
+    const html = markdownToHtml('See `pytorch_model_weights_v2.bin` for details');
+    expect(html).toContain('<code>pytorch_model_weights_v2.bin</code>');
+    expect(html).not.toContain('<em>');
+  });
+
+  it('renders checkbox list items with distinct done/todo markers', () => {
+    const html = markdownToHtml('- [x] High-risk constraints validated.\n- [ ] Manual input required.');
+    expect(html).toContain('class="check done"');
+    expect(html).toContain('class="check todo"');
+    expect(html).toContain('High-risk constraints validated.');
+  });
+
+  it('renders nested bullets as nested lists', () => {
+    const html = markdownToHtml('- **Resource:** gpu-node\n  - **Finding:** unoptimized');
+    // Two opens for the nested structure, both closed.
+    expect(html.match(/<ul>/g)).toHaveLength(2);
+    expect(html.match(/<\/ul>/g)).toHaveLength(2);
+    expect(html).toContain('<li><strong>Finding:</strong> unoptimized</li>');
+  });
+
+  it('renders the risk-register table with header and body rows', () => {
+    const md = [
+      '| Component | Severity |',
+      '|---|---|',
+      '| `torch` | High |',
+      '| `langchain` | Critical |',
+    ].join('\n');
+    const html = markdownToHtml(md);
+    expect(html).toContain('<th>Component</th>');
+    expect(html).toContain('<td><code>torch</code></td>');
+    expect(html).toContain('<td>Critical</td>');
+    // Separator row must not leak into the body.
+    expect(html).not.toContain('---');
+  });
+
+  it('keeps plain digits in prose intact (sentinel round-trip)', () => {
+    const html = markdownToHtml('Scanned 5 files across 3 layers');
+    expect(html).toContain('Scanned 5 files across 3 layers');
+  });
+});
+
+describe('buildPrintDocument', () => {
+  it('embeds the ledger hash in the provenance footer and title', () => {
+    const doc = buildPrintDocument('# Report', { hash: 'abcdef1234567890' });
+    expect(doc).toContain('<title>annex-iv-abcdef12</title>');
+    expect(doc).toContain('Immutable ledger entry');
+    expect(doc).toContain('abcdef1234567890');
+    expect(doc).toContain('Generated');
+  });
+
+  it('falls back to a slugged project name when there is no hash', () => {
+    const doc = buildPrintDocument('# Report', { projectName: 'My Project!' });
+    expect(doc).toContain('<title>annex-iv-my-project-</title>');
+    expect(doc).not.toContain('Immutable ledger entry');
+  });
+});
