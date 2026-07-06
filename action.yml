@@ -15,6 +15,11 @@ inputs:
     description: "Pro Tier: Your AIcap API Key to sync results to your dashboard"
     required: false
 
+outputs:
+  compliance-status:
+    description: "EU AI Act posture from the scan (e.g. 'Passed' or 'Action Required (Annex IV Documentation Missing)'). Set even when the scan fails the job, so later steps with if: always() can report on it."
+    value: ${{ steps.scan.outputs.compliance-status }}
+
 runs:
   using: "composite"
   steps:
@@ -26,9 +31,18 @@ runs:
         chmod +x aicap
 
     - name: Execute AI-BOM Scan
+      id: scan
       shell: bash
       env:
         AICAP_API_KEY: ${{ inputs.api-key }}
       run: |
         echo "🔍 Starting Continuous AI-BOM Scan on directory: ${{ inputs.scan-directory }}"
-        ./aicap --cli "${{ inputs.scan-directory }}"
+        # Capture output for the compliance-status output while
+        # preserving the CLI's exit code (0 pass / 1 unmitigated
+        # high-risk / 2 policy blocker) so the job still gates merges.
+        set +e
+        ./aicap --cli "${{ inputs.scan-directory }}" | tee aicap-scan-output.txt
+        exit_code=${PIPESTATUS[0]}
+        status=$(grep -o '"complianceStatus": *"[^"]*"' aicap-scan-output.txt | head -1 | sed 's/.*: *"\(.*\)"/\1/')
+        echo "compliance-status=${status:-Unknown}" >> "$GITHUB_OUTPUT"
+        exit "$exit_code"

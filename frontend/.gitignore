@@ -31,3 +31,5 @@ playwright/.cache/
 
 # Generated SEO guide pages (built by scripts/build-guides.mjs)
 public/guides/
+public/sitemap.xml
+public/robots.txt
