@@ -126,10 +126,11 @@ func main() {
 				req.Header.Set("Authorization", "Bearer "+apiKey)
 				client := &http.Client{Timeout: 10 * time.Second}
 				resp, err := client.Do(req)
-				if err != nil || resp.StatusCode != 201 {
+				if err != nil {
 					fmt.Println("[-] Warning: Failed to sync with AIcap Cloud (Is the server reachable?).")
 				} else {
-					fmt.Println("[+] Successfully synced Immutable Proof Drill to your dashboard!")
+					fmt.Println(syncStatusMessage(resp.StatusCode))
+					resp.Body.Close()
 				}
 			}
 		}
@@ -303,6 +304,26 @@ func complianceExitCode(bom types.AIBOM) int {
 	}
 	fmt.Println("\n[+] Compliance scan passed. Pipeline approved.")
 	return 0
+}
+
+// syncStatusMessage maps the save-proof HTTP status to the line shown
+// in the CI log. Both 201 (new ledger entry) and 200 (Wave 6
+// idempotent replay of a commit already recorded) are success — a
+// workflow re-run on the same commit must not read as a sync failure.
+// Known rejections name their cause instead of blaming connectivity.
+func syncStatusMessage(statusCode int) string {
+	switch statusCode {
+	case http.StatusCreated:
+		return "[+] Successfully synced Immutable Proof Drill to your dashboard!"
+	case http.StatusOK:
+		return "[+] Proof Drill for this commit is already in your ledger (idempotent re-run) — nothing new to record."
+	case http.StatusPaymentRequired:
+		return "[-] Warning: Sync rejected — free-tier scan quota exhausted (HTTP 402). Upgrade to Pro or wait for the rolling 30-day window to free a slot."
+	case http.StatusUnauthorized:
+		return "[-] Warning: Sync rejected — API key invalid or revoked (HTTP 401). Rotate the key in your dashboard and update the CI secret."
+	default:
+		return fmt.Sprintf("[-] Warning: Failed to sync with AIcap Cloud (HTTP %d).", statusCode)
+	}
 }
 
 // badgeMarkdown renders a shields.io badge snippet reflecting the scan

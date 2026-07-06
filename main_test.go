@@ -143,3 +143,25 @@ func TestBadgeMarkdown_BlockerOutranksPosture(t *testing.T) {
 		t.Errorf("badge=%q want policy-breach/red", got)
 	}
 }
+
+func TestSyncStatusMessage_CreatedAndIdempotentAreSuccess(t *testing.T) {
+	if got := syncStatusMessage(201); !strings.HasPrefix(got, "[+]") {
+		t.Errorf("201 message = %q, want success prefix [+]", got)
+	}
+	got := syncStatusMessage(200)
+	if !strings.HasPrefix(got, "[+]") || !strings.Contains(got, "idempotent") {
+		t.Errorf("200 message = %q, want success prefix and idempotent mention", got)
+	}
+}
+
+func TestSyncStatusMessage_KnownRejectionsNameTheirCause(t *testing.T) {
+	if got := syncStatusMessage(402); !strings.Contains(got, "quota") {
+		t.Errorf("402 message = %q, want quota mention", got)
+	}
+	if got := syncStatusMessage(401); !strings.Contains(got, "API key") {
+		t.Errorf("401 message = %q, want API key mention", got)
+	}
+	if got := syncStatusMessage(503); !strings.Contains(got, "HTTP 503") {
+		t.Errorf("503 message = %q, want status code surfaced", got)
+	}
+}
