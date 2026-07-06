@@ -24,6 +24,9 @@ export default function MarketingFooter() {
           <h3 className="font-bold text-slate-900 mb-3">Resources</h3>
           <ul className="space-y-2 text-slate-600">
             <li>
+              <a className="hover:text-indigo-600" href="/guides/">Compliance guides</a>
+            </li>
+            <li>
               <a className="hover:text-indigo-600" href="https://github.com/istrategeorge/AIcap">Source</a>
             </li>
             <li>
