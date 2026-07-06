@@ -49,7 +49,9 @@ export function markdownToHtml(markdown) {
 
   const flushPara = () => {
     if (para.length > 0) {
-      out.push(`<p>${para.map(renderInline).join(' ')}</p>`);
+      // Join wrapped source lines BEFORE inline rendering so **bold**
+      // and _italics_ spanning a hard line break still match.
+      out.push(`<p>${renderInline(para.join(' '))}</p>`);
       para = [];
     }
   };
@@ -134,6 +136,20 @@ export function markdownToHtml(markdown) {
         content = content.slice(4);
       }
       out.push(`<li>${marker}${renderInline(content)}</li>`);
+      i++;
+      continue;
+    }
+
+    // Indented continuation of a wrapped list item: fold it into the
+    // previous <li> instead of opening a stray paragraph. (Inline
+    // formatting must not span the wrap — the fold renders fragments
+    // independently.)
+    if (
+      listDepth > 0 && /^\s+/.test(line) &&
+      out.length > 0 && out[out.length - 1].endsWith('</li>')
+    ) {
+      const prev = out.pop();
+      out.push(`${prev.slice(0, -'</li>'.length)} ${renderInline(line.trim())}</li>`);
       i++;
       continue;
     }
