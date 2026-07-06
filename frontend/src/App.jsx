@@ -13,11 +13,15 @@ import Paywall from './components/Paywall.jsx';
 import ProDashboard from './components/ProDashboard.jsx';
 import LocalDashboard from './components/LocalDashboard.jsx';
 import PublicReport from './components/PublicReport.jsx';
+import LegalPage from './components/LegalPage.jsx';
 
-// Share links minted by /api/share-report land on /?report=<token>.
-// Resolved once at module load: the public report view bypasses the
-// entire auth state machine (no session, no Supabase listener needed).
-const publicReportToken = new URLSearchParams(window.location.search).get('report');
+// Share links minted by /api/share-report land on /?report=<token>;
+// legal/trust pages live on /?page=<slug>. Both resolved once at module
+// load: these public views bypass the entire auth state machine (no
+// session, no Supabase listener needed).
+const urlParams = new URLSearchParams(window.location.search);
+const publicReportToken = urlParams.get('report');
+const legalPageSlug = urlParams.get('page');
 
 // Default state before fetch.
 const defaultScanData = {
@@ -40,6 +44,7 @@ const defaultScanData = {
 // holding a share link is not a user, so no auth machinery mounts.
 export default function App() {
   if (publicReportToken) return <PublicReport token={publicReportToken} />;
+  if (legalPageSlug) return <LegalPage slug={legalPageSlug} />;
   return <Dashboard />;
 }
 
