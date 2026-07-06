@@ -105,6 +105,13 @@ func BuildRightsizingRecommendations(bom types.AIBOM) []types.FinOpsRightsizing 
 		// worst-case difference between extremes.
 		savingsLow := c.MonthlyUSDLow - altLow
 		savingsHigh := c.MonthlyUSDHigh - altHigh
+		// The pairing can invert when the recommended family's price
+		// spread is wider than the current one's (inf2 spans xlarge to
+		// 48xlarge; p4d has a single size). A range must satisfy
+		// low <= high, so order the two scenario values.
+		if savingsLow > savingsHigh {
+			savingsLow, savingsHigh = savingsHigh, savingsLow
+		}
 		if savingsLow <= 0 && savingsHigh <= 0 {
 			// Refuse to recommend a family that's the same price or more.
 			continue

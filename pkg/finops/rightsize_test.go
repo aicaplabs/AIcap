@@ -120,6 +120,36 @@ func TestBuildRightsizingRecommendations_GCP_a3_to_g2(t *testing.T) {
 	}
 }
 
+// The savings range must always satisfy low <= high. With a
+// single-size current family (identical low/high) and a wide-spread
+// recommended family (inf2 spans xlarge–48xlarge), the like-for-like
+// pairing produces an inverted pair — the builder must order it.
+func TestBuildRightsizingRecommendations_SavingsRangeOrdered(t *testing.T) {
+	bom := types.AIBOM{
+		FinOps: []types.FinOpsFinding{{
+			Resource: "gpu_instances.tf",
+			EstimatedCost: &types.FinOpsCost{
+				InstanceFamily: "p4d.",
+				Cloud:          "AWS",
+				// Single-size family: low == high, like the real p4d
+				// catalog entry that produced low=23367 > high=14446
+				// in production output.
+				MonthlyUSDLow:  32.77 * 730,
+				MonthlyUSDHigh: 32.77 * 730,
+			},
+		}},
+	}
+	recs := BuildRightsizingRecommendations(bom)
+	if len(recs) != 1 {
+		t.Fatalf("got %d recommendations, want 1", len(recs))
+	}
+	r := recs[0]
+	if r.EstimatedSavingsLow > r.EstimatedSavingsHigh {
+		t.Errorf("savings range inverted: low %.2f > high %.2f",
+			r.EstimatedSavingsLow, r.EstimatedSavingsHigh)
+	}
+}
+
 // A finding with no EstimatedCost (typical k8s nvidia.com/gpu request)
 // can't be rightsized — we have no current family to compare against.
 func TestBuildRightsizingRecommendations_SkipsWhenNoEstimatedCost(t *testing.T) {
