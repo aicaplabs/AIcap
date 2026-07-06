@@ -2,6 +2,7 @@ package main
 
 import (
 	"reflect"
+	"strings"
 	"testing"
 
 	"aicap/pkg/types"
@@ -106,5 +107,39 @@ func TestComplianceExitCode_NonPolicyFailureIsOne(t *testing.T) {
 func TestComplianceExitCode_PassedIsZero(t *testing.T) {
 	if got := complianceExitCode(types.AIBOM{Compliance: "Passed"}); got != 0 {
 		t.Errorf("exit = %d, want 0", got)
+	}
+}
+
+func TestBadgeMarkdown_Passing(t *testing.T) {
+	bom := types.AIBOM{Compliance: "Passed"}
+	got := badgeMarkdown(bom)
+	if !strings.Contains(got, "passing-10b981") {
+		t.Errorf("badge=%q want passing/green", got)
+	}
+	if !strings.Contains(got, "https://aicap.eu") {
+		t.Errorf("badge=%q must link back to aicap.eu", got)
+	}
+}
+
+func TestBadgeMarkdown_ActionRequired(t *testing.T) {
+	bom := types.AIBOM{Compliance: "Action Required (Annex IV Documentation Missing)"}
+	got := badgeMarkdown(bom)
+	if !strings.Contains(got, "action%20required-f59e0b") {
+		t.Errorf("badge=%q want action-required/amber", got)
+	}
+}
+
+func TestBadgeMarkdown_BlockerOutranksPosture(t *testing.T) {
+	// A Blocker policy violation must win even when the posture string
+	// is "Passed" — mirrors the complianceExitCode precedence.
+	bom := types.AIBOM{
+		Compliance: "Passed",
+		PolicyViolations: []types.PolicyViolation{
+			{Rule: "blocked_models", Severity: "Blocker", Description: "gpt-4 is blocked"},
+		},
+	}
+	got := badgeMarkdown(bom)
+	if !strings.Contains(got, "policy%20breach-ef4444") {
+		t.Errorf("badge=%q want policy-breach/red", got)
 	}
 }

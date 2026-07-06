@@ -1,5 +1,6 @@
 import React from 'react';
 
+import { apiFetch } from '../lib/supabase.js';
 import KeyVault from './KeyVault.jsx';
 import HistoryTable from './HistoryTable.jsx';
 import AnnexIVPreview from './AnnexIVPreview.jsx';
@@ -51,7 +52,7 @@ export default function ProDashboard({
           <div className="mt-6 bg-slate-900/80 p-4 rounded-lg font-mono text-sm text-indigo-300 overflow-x-auto border border-indigo-500/30">
             <p className="text-slate-500 mb-2"># Add this to your .github/workflows/build.yml</p>
             <p><span className="text-pink-400">-</span> <span className="text-blue-400">name</span>: Run EU AI Act Compliance Scan</p>
-            <p>  <span className="text-blue-400">uses</span>: istrategeorge/AIcap@v1.0.0-beta</p>
+            <p>  <span className="text-blue-400">uses</span>: istrategeorge/AIcap@v1.2.0</p>
             <p>  <span className="text-blue-400">with</span>:</p>
             <p>    <span className="text-blue-400">api-key</span>: {'${{ secrets.AICAP_API_KEY }}'}</p>
           </div>
@@ -77,7 +78,23 @@ export default function ProDashboard({
       />
 
       {historicalProof && (
-        <AnnexIVPreview scanData={null} historicalProof={historicalProof} mode="historical" />
+        <AnnexIVPreview
+          scanData={null}
+          historicalProof={historicalProof}
+          mode="historical"
+          // Mint (or re-fetch, it's idempotent) the public share token
+          // for this proof and hand back the recipient-facing URL.
+          onShare={async () => {
+            const resp = await apiFetch('/api/share-report', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ hash: historicalProof.hash }),
+            }, onTokenRefresh);
+            if (!resp.ok) throw new Error(`share failed: ${resp.status}`);
+            const { token } = await resp.json();
+            return `${window.location.origin}/?report=${token}`;
+          }}
+        />
       )}
     </div>
   );

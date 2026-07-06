@@ -679,6 +679,168 @@ func RegisterRoutes(mux *http.ServeMux, db *sql.DB, isCloudSaaS bool) {
 		mux.HandleFunc("/api/verify-chain", verifyChainHandler)
 	}
 
+	// --- Report sharing (Wave 15) --------------------------------------------
+	// POST /api/share-report {hash} mints (or re-returns) the share token
+	// for one of the caller's proof drills; DELETE ?hash= revokes it.
+	// The token is a 256-bit capability generated server-side — possession
+	// grants read access to exactly one report via /api/public/report.
+	// Idempotent: sharing an already-shared report returns the existing
+	// token (200) so the frontend can safely re-request the link.
+	//
+	// JWT-gated and user_id-scoped like /api/proof: only the owner can
+	// mint or revoke, and a hash belonging to another tenant 404s.
+	shareReportHandler := func(w http.ResponseWriter, r *http.Request) {
+		cors(w, r)
+		w.Header().Set("Access-Control-Allow-Methods", "POST, DELETE, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+		if r.Method == http.MethodOptions {
+			return
+		}
+		if db == nil {
+			http.Error(w, "Database not configured", http.StatusInternalServerError)
+			return
+		}
+		userID := auth.UserID(r)
+		logger := httplog.From(r.Context()).With(slog.String("user_id", userID))
+
+		switch r.Method {
+		case http.MethodPost:
+			var body struct {
+				Hash string `json:"hash"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Hash == "" {
+				http.Error(w, "Missing hash", http.StatusBadRequest)
+				return
+			}
+			var existing sql.NullString
+			err := db.QueryRow(
+				`SELECT share_token FROM proof_drills WHERE crypto_hash = $1 AND user_id = $2`,
+				body.Hash, userID,
+			).Scan(&existing)
+			if err == sql.ErrNoRows {
+				http.Error(w, "Proof drill not found", http.StatusNotFound)
+				return
+			}
+			if err != nil {
+				logger.Error("share-report lookup failed", slog.Any("error", err))
+				http.Error(w, "Internal server error", http.StatusInternalServerError)
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			if existing.Valid && existing.String != "" {
+				json.NewEncoder(w).Encode(map[string]string{"token": existing.String})
+				return
+			}
+			tokenBytes := make([]byte, 32)
+			if _, err := rand.Read(tokenBytes); err != nil {
+				logger.Error("share-report token generation failed", slog.Any("error", err))
+				http.Error(w, "Internal server error", http.StatusInternalServerError)
+				return
+			}
+			token := hex.EncodeToString(tokenBytes)
+			if _, err := db.Exec(
+				`UPDATE proof_drills SET share_token = $1 WHERE crypto_hash = $2 AND user_id = $3`,
+				token, body.Hash, userID,
+			); err != nil {
+				logger.Error("share-report update failed", slog.Any("error", err))
+				http.Error(w, "Internal server error", http.StatusInternalServerError)
+				return
+			}
+			logger.Info("report shared", slog.String("hash", body.Hash))
+			w.WriteHeader(http.StatusCreated)
+			json.NewEncoder(w).Encode(map[string]string{"token": token})
+
+		case http.MethodDelete:
+			hash := r.URL.Query().Get("hash")
+			if hash == "" {
+				http.Error(w, "Missing hash parameter", http.StatusBadRequest)
+				return
+			}
+			res, err := db.Exec(
+				`UPDATE proof_drills SET share_token = NULL WHERE crypto_hash = $1 AND user_id = $2`,
+				hash, userID,
+			)
+			if err != nil {
+				logger.Error("share-report revoke failed", slog.Any("error", err))
+				http.Error(w, "Internal server error", http.StatusInternalServerError)
+				return
+			}
+			if n, _ := res.RowsAffected(); n == 0 {
+				http.Error(w, "Proof drill not found", http.StatusNotFound)
+				return
+			}
+			logger.Info("report share revoked", slog.String("hash", hash))
+			w.WriteHeader(http.StatusNoContent)
+
+		default:
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		}
+	}
+	// Cloud-only: sharing is meaningless without the hosted ledger, and
+	// local mode has no JWT to scope ownership with.
+	if isCloudSaaS {
+		mux.HandleFunc("/api/share-report", withCORS(auth.RequireSupabaseJWT(shareReportHandler)))
+	}
+
+	// --- Public shared report (Wave 15, unauthenticated) ----------------------
+	// GET /api/public/report?token=… resolves a share token minted above.
+	// No auth middleware: the 256-bit token IS the credential. The response
+	// deliberately carries only the report and its provenance — never
+	// user_id or internal row ids.
+	publicReportHandler := func(w http.ResponseWriter, r *http.Request) {
+		cors(w, r)
+		w.Header().Set("Access-Control-Allow-Methods", "GET, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+		if r.Method == http.MethodOptions {
+			return
+		}
+		if r.Method != http.MethodGet {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		if db == nil {
+			http.Error(w, "Database not configured", http.StatusInternalServerError)
+			return
+		}
+		token := r.URL.Query().Get("token")
+		// Tokens are exactly 64 lowercase hex chars; reject malformed
+		// input before it reaches the database. 404 (not 400) so probing
+		// can't distinguish "bad format" from "no such report".
+		if !isShareToken(token) {
+			http.Error(w, "Report not found", http.StatusNotFound)
+			return
+		}
+		var (
+			markdown, commitSha, cryptoHash string
+			projectName                     sql.NullString
+			createdAt                       time.Time
+		)
+		err := db.QueryRow(
+			`SELECT pd.annex_iv_markdown, pd.commit_sha, pd.crypto_hash, pd.created_at, p.name
+			 FROM proof_drills pd
+			 LEFT JOIN projects p ON p.id = pd.project_id
+			 WHERE pd.share_token = $1`, token,
+		).Scan(&markdown, &commitSha, &cryptoHash, &createdAt, &projectName)
+		if err == sql.ErrNoRows {
+			http.Error(w, "Report not found", http.StatusNotFound)
+			return
+		}
+		if err != nil {
+			httplog.From(r.Context()).Error("public report query failed", slog.Any("error", err))
+			http.Error(w, "Internal server error", http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{
+			"markdown":    markdown,
+			"commitSha":   commitSha,
+			"cryptoHash":  cryptoHash,
+			"createdAt":   createdAt.Format(time.RFC3339),
+			"projectName": projectName.String,
+		})
+	}
+	mux.HandleFunc("/api/public/report", publicReportHandler)
+
 	// --- Stripe checkout ----------------------------------------------------
 	// /api/create-checkout-session derives user_id + email from the verified
 	// Supabase JWT; the request body is ignored for those fields so a caller
@@ -1336,6 +1498,20 @@ func RegisterRoutes(mux *http.ServeMux, db *sql.DB, isCloudSaaS bool) {
 // plaintext (to echo to the caller exactly once) and its SHA-256 hash (to
 // persist). Shared by /api/generate-key and /api/rotate-key to keep the
 // token prefix and hash algorithm in one place.
+// isShareToken reports whether s looks like a token we could have
+// minted: exactly 64 lowercase hex characters (32 random bytes).
+func isShareToken(s string) bool {
+	if len(s) != 64 {
+		return false
+	}
+	for _, c := range s {
+		if (c < '0' || c > '9') && (c < 'a' || c > 'f') {
+			return false
+		}
+	}
+	return true
+}
+
 func newAPIKey() (raw, hashed string, err error) {
 	keyBytes := make([]byte, 24)
 	if _, err = rand.Read(keyBytes); err != nil {
