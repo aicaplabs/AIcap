@@ -139,7 +139,14 @@ func main() {
 		// explicit .aicap.yml policy breach (exit 2). Allows pipelines
 		// to skip notification noise on warnings while still failing
 		// loudly on blocker-severity violations.
-		os.Exit(complianceExitCode(bom))
+		exitCode := complianceExitCode(bom)
+
+		// README badge snippet: printed after the verdict so it shows
+		// the posture of this scan. Every badge in a customer README
+		// links back to aicap.eu — organic distribution.
+		fmt.Printf("\n[+] Add the compliance badge to your README:\n    %s\n", badgeMarkdown(bom))
+
+		os.Exit(exitCode)
 	}
 
 	httplog.Init()
@@ -296,6 +303,28 @@ func complianceExitCode(bom types.AIBOM) int {
 	}
 	fmt.Println("\n[+] Compliance scan passed. Pipeline approved.")
 	return 0
+}
+
+// badgeMarkdown renders a shields.io badge snippet reflecting the scan
+// posture, mirroring the complianceExitCode contract: Blocker policy
+// violations outrank a non-Passed posture, which outranks "passing".
+// Colors follow CI badge idiom (green/amber/red) so the badge reads at
+// a glance in a README.
+func badgeMarkdown(bom types.AIBOM) string {
+	message, color := "passing", "10b981"
+	for _, v := range bom.PolicyViolations {
+		if v.Severity == "Blocker" {
+			message, color = "policy%20breach", "ef4444"
+			break
+		}
+	}
+	if message == "passing" && bom.Compliance != "Passed" {
+		message, color = "action%20required", "f59e0b"
+	}
+	return fmt.Sprintf(
+		"[![EU AI Act — scanned by AIcap](https://img.shields.io/badge/EU%%20AI%%20Act-%s-%s)](https://aicap.eu)",
+		message, color,
+	)
 }
 
 // parseCLIArgs parses the --cli subcommand's tail (everything after
