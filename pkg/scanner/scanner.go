@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -429,6 +430,25 @@ func parsePackageJson(filePath string) []types.AIDependency {
 	return found
 }
 
+// isTargetModelLiteral reports whether a string literal is a hardcoded
+// model identifier. Substring matching alone flags prose — test
+// assertion messages, log lines, format strings ("expected 2 deps
+// (openai + llama-3 weight), got %d") — because model names appear in
+// sentences about models. Real identifiers (gpt-4,
+// claude-3-opus-20240229, meta-llama/Meta-Llama-3-8B) never contain
+// whitespace, so any literal with whitespace is treated as prose.
+func isTargetModelLiteral(val string) bool {
+	if strings.ContainsAny(val, " \t\r\n") {
+		return false
+	}
+	for _, model := range targetModels {
+		if strings.Contains(val, model) {
+			return true
+		}
+	}
+	return false
+}
+
 // parsePythonSource uses heuristic regex matching to find string literals AND import statements in Python files
 func parsePythonSource(filePath string) []types.AIDependency {
 	var found []types.AIDependency
@@ -479,15 +499,7 @@ func parsePythonSource(filePath string) []types.AIDependency {
 					val = match[2]
 				}
 
-				isTargetModel := false
-				for _, model := range targetModels {
-					if strings.Contains(val, model) {
-						isTargetModel = true
-						break
-					}
-				}
-
-				if isTargetModel {
+				if isTargetModelLiteral(val) {
 					found = append(found, types.AIDependency{
 						Name:        "Hardcoded Model",
 						Version:     val,
@@ -565,18 +577,16 @@ func parseGoAST(filePath string) []types.AIDependency {
 		// Look specifically for literal values (e.g., strings) to avoid matching comments or variable names
 		lit, ok := n.(*ast.BasicLit)
 		if ok && lit.Kind == token.STRING {
-			val := strings.Trim(lit.Value, "\"")
-
-			isTargetModel := false
-			for _, model := range targetModels {
-				if strings.Contains(val, model) {
-					isTargetModel = true
-					break
-				}
+			// Unquote rather than trim so escape sequences resolve —
+			// a source literal "a\nllama-3" contains real whitespace
+			// and must be treated as prose by the model detector.
+			val, err := strconv.Unquote(lit.Value)
+			if err != nil {
+				val = strings.Trim(lit.Value, "\"`")
 			}
 
 			// Detect hardcoded model identifiers
-			if isTargetModel {
+			if isTargetModelLiteral(val) {
 				pos := fset.Position(lit.Pos())
 				found = append(found, types.AIDependency{
 					Name:        "Hardcoded Model",

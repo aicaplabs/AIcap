@@ -197,6 +197,59 @@ func main() {
 	}
 }
 
+// isTargetModelLiteral: model names inside prose (test-assertion
+// messages, log lines, format strings) must not be reported as
+// hardcoded model identifiers — real identifiers never contain
+// whitespace.
+func TestIsTargetModelLiteral_ProseIsNotAModel(t *testing.T) {
+	cases := map[string]bool{
+		"gpt-4":                  true,
+		"gpt-4-turbo":            true,
+		"claude-3-opus-20240229": true,
+		"models/llama-3-8b.gguf": true,
+		"hello world":            false,
+		"expected 2 deps (openai + llama-3 weight), got %d: %+v": false,
+		"gpt-4 is blocked":      false,
+		"the claude-3 endpoint": false,
+		"line1\nllama-3":        false,
+		"tab\tgpt-4":            false,
+	}
+	for val, want := range cases {
+		if got := isTargetModelLiteral(val); got != want {
+			t.Errorf("isTargetModelLiteral(%q) = %v, want %v", val, got, want)
+		}
+	}
+}
+
+// Regression: a Go file whose only model mentions are inside prose
+// strings (the AIcap repo's own test files triggered this) yields no
+// Hardcoded Model findings, while a real identifier still fires.
+func TestParseGoAST_ProseStringsAreNotModels(t *testing.T) {
+	content := `package scanner
+
+import "fmt"
+
+func main() {
+	fmt.Errorf("expected 2 deps (openai + llama-3 weight), got %d", 3)
+	msg := "gpt-4 is blocked"
+	model := "claude-3-haiku-20240307"
+	_, _ = msg, model
+}
+`
+	path := createTempFile(t, "prose.go", content)
+	deps := parseGoAST(path)
+
+	var models []string
+	for _, d := range deps {
+		if d.Name == "Hardcoded Model" {
+			models = append(models, d.Version)
+		}
+	}
+	if len(models) != 1 || models[0] != "claude-3-haiku-20240307" {
+		t.Errorf("expected exactly the real identifier, got %v", models)
+	}
+}
+
 // --- parsePythonSource Tests ---
 
 func TestParsePythonSource_DetectsModelsAndSecrets(t *testing.T) {
@@ -557,7 +610,7 @@ func TestPerformScan_Integration(t *testing.T) {
 
 func TestPerformScan_WithPolicyViolations(t *testing.T) {
 	files := map[string]string{
-		"test.py":     `model = "gpt-4-turbo"` + "\n",
+		"test.py":    `model = "gpt-4-turbo"` + "\n",
 		".aicap.yml": "blocked_models:\n  - gpt-4\n",
 	}
 	dir := createTempDir(t, files)
@@ -804,8 +857,8 @@ func TestAnnexIV_FinOpsCost_Rendered(t *testing.T) {
 	bom := types.AIBOM{
 		ProjectName: "x",
 		FinOps: []types.FinOpsFinding{{
-			Resource: "infra.tf",
-			Severity: "Warning",
+			Resource:    "infra.tf",
+			Severity:    "Warning",
 			Description: "AWS instance detected.",
 			EstimatedCost: &types.FinOpsCost{
 				InstanceFamily: "p4d.",
@@ -1325,7 +1378,3 @@ func TestAnnexIV_Section1_Wave12Fields_PlaceholdersWhenAbsent(t *testing.T) {
 		}
 	}
 }
-
-
-
-
