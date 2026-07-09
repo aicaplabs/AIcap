@@ -52,7 +52,7 @@ export default function ProDashboard({
           <div className="mt-6 bg-slate-900/80 p-4 rounded-lg font-mono text-sm text-indigo-300 overflow-x-auto border border-indigo-500/30">
             <p className="text-slate-500 mb-2"># Add this to your .github/workflows/build.yml</p>
             <p><span className="text-pink-400">-</span> <span className="text-blue-400">name</span>: Run EU AI Act Compliance Scan</p>
-            <p>  <span className="text-blue-400">uses</span>: istrategeorge/AIcap@v1.2.0</p>
+            <p>  <span className="text-blue-400">uses</span>: istrategeorge/AIcap@v1.3.0</p>
             <p>  <span className="text-blue-400">with</span>:</p>
             <p>    <span className="text-blue-400">api-key</span>: {'${{ secrets.AICAP_API_KEY }}'}</p>
           </div>
