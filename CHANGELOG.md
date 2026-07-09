@@ -9,6 +9,80 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 Trial of new features lands on `development` first. Once a stable
 batch is ready, it is merged to `main` and tagged.
 
+## [1.3.0] — 2026-07-09 — Conversion & distribution (Waves 14–15) + fixes
+
+### Added — GTM: SEO guides + Marketplace prep (Wave 14)
+- **10 static, crawlable guide pages** at `/guides/`, generated at
+  build time from `frontend/guides/*.md` by
+  `frontend/scripts/build-guides.mjs` (wired into `npm run build`, so
+  Vercel regenerates them on every deploy). Each page gets a canonical
+  URL, Open Graph tags, and Article JSON-LD. Topics span the
+  highest-intent pre-deadline queries: Annex IV checklist, AI-BOM vs
+  SBOM, CycloneDX export, Article 9 continuous risk management, Annex
+  III high-risk classification, Article 53 GPAI documentation,
+  container-image weight scanning, GPU cost detection, the GitHub
+  Actions tutorial, and the penalties explainer.
+- **`sitemap.xml` + `robots.txt`** emitted alongside the guides so
+  crawlers enumerate them without relying on link discovery from the
+  SPA landing page.
+- **Markdown renderer** (`lib/annexIVPdf.js`) gained fenced-code-block
+  support and now re-renders wrapped list items from their
+  accumulated raw source, so inline formatting (bold/italic) spanning
+  a hard line-wrap renders correctly instead of leaking literal `**`.
+- **`action.yml`** gains a `compliance-status` output (extracted from
+  the scan JSON with the CLI's gating exit code preserved) so
+  downstream workflow steps can branch on the verdict.
+- **`documentation/marketplace-listing.md`** — GitHub Marketplace
+  publication checklist, category choices, release-notes copy, and a
+  README screenshot shot list.
+
+### Added — Conversion & distribution features (Wave 15)
+- **Annex IV PDF export** — `lib/annexIVPdf.js` renders report
+  markdown to a print-ready HTML document via a hidden iframe
+  (`exportAnnexIVPdf`); every export carries a provenance footer with
+  the ledger hash. Export buttons added to the dashboard preview and
+  the public report page.
+- **Sample report landing section** — a full Annex IV sample for a
+  fictional high-risk hiring system, rendered on the public landing
+  page with a download-as-PDF CTA.
+- **EU AI Act deadline countdown** — landing-page badge counting down
+  to 2 August 2026, switching to "obligations are now in force" copy
+  once the date passes.
+- **CLI README badge** — `badgeMarkdown` prints a shields.io snippet
+  reflecting the scan posture (passing / action required / policy
+  breach) after every `--cli` run, linking back to aicap.eu.
+- **Shareable public report links** — migration `00013` adds
+  `proof_drills.share_token` (partial unique index, NULL until
+  explicitly shared). `POST /api/share-report {hash}` mints a 256-bit
+  capability token (idempotent — re-sharing returns the same token
+  with 200); `DELETE ?hash=` revokes it instantly. Public
+  `GET /api/public/report?token=` resolves it unauthenticated
+  (malformed / unknown / revoked tokens are all indistinguishable
+  404s). Frontend: `/?report=<token>` renders `PublicReport.jsx`,
+  bypassing the auth state machine entirely; a Share button on the
+  Pro dashboard copies the link.
+- **Legal & trust pages** — Terms, Privacy Policy, DPA summary, and
+  Security pages at `/?page=terms|privacy|dpa|security`, linked from
+  a new Legal footer column. Includes the compliance disclaimer that
+  generated Annex IV documents are drafts, not legal advice.
+
+### Fixed
+- **`pkg/finops/rightsize.go`** — the rightsizing savings range could
+  invert (`estimatedSavingsMonthlyUsdLow > ...High`) when the
+  recommended family's price spread was wider than the current
+  family's (e.g. a single-size `p4d.` vs. `inf2.`, which spans
+  `xlarge`–`48xlarge`). The two scenario values are now ordered
+  before being returned.
+- **CLI cloud sync** — `/api/save-proof` has returned `200` (not just
+  `201`) for an idempotent replay of an already-recorded commit since
+  Wave 6, but the CLI only treated `201` as success. Every workflow
+  re-run on an unchanged commit printed "Failed to sync (Is the
+  server reachable?)" against a healthy backend. `syncStatusMessage`
+  now distinguishes created (201) and idempotent-replay (200) success
+  from named rejections (402 quota, 401 bad key) and unknown errors.
+
+## [1.2.0] — 2026-06-17 — Waves 9c–13: reverse trial, FinOps, image scanning, EU hosting
+
 ### Added — Compliance polish, policy exit codes, Playwright (Wave 12)
 - **`.aicap.yml` expanded fields** — `contact_email`, `data_inputs`,
   `training_datasets` parsed by `LoadPolicyConfig`. Annex IV § 1 now
@@ -125,6 +199,20 @@ batch is ready, it is merged to `main` and tagged.
   flag parsing + forward-compat unknown-flag tolerance. 2 new
   Annex IV § 2(d) rendering tests in `pkg/scanner/scanner_test.go`
   (rendered when present, omitted when empty). Phase 2 → ~100%.
+
+### Added — EU data residency: backend migrated Render (US) → Scaleway (Wave 13)
+- **Backend compute moved to Scaleway Serverless Containers** (`fr-par`,
+  Paris). The database was already on Supabase `eu-west-1` (Ireland),
+  so this migration was compute-only — no data migration needed. All
+  persisted application data now resides in the EU.
+- **`deploy/terraform/scaleway/`** — Terraform module provisioning a
+  private Container Registry namespace, a Serverless Container
+  namespace, and the backend container. Scale-to-zero (`min_scale=0`)
+  by default to stay within Scaleway's free tier.
+- **`documentation/data-residency.md`** — per-data-class location
+  table and sub-processor list for enterprise DPA due diligence.
+- Backend URL moved to `*.functions.fnc.fr-par.scw.cloud`; frontend
+  `VITE_API_URL` on Vercel repointed; Render retired.
 
 ## [1.1.0] — 2026-05-02 — Self-host, GTM surface, billing self-serve & live CVE enrichment
 
