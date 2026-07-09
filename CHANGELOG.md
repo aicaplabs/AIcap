@@ -9,6 +9,26 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 Trial of new features lands on `development` first. Once a stable
 batch is ready, it is merged to `main` and tagged.
 
+## [1.3.2] — 2026-07-09 — Scanner false-positive fix
+
+### Fixed
+- **Hardcoded-model detector no longer flags prose.** Any string
+  literal containing a model-name substring (test-assertion messages,
+  log lines, format strings — "expected 2 deps (openai + llama-3
+  weight), got %d") was reported as a High-risk "Hardcoded Model"
+  finding, polluting Annex IV output. Real model identifiers never
+  contain whitespace, so literals with whitespace are now treated as
+  prose. `parseGoAST` also unquotes literals (`strconv.Unquote`) so
+  escaped whitespace counts.
+
+## [1.3.1] — 2026-07-09 — Release self-reference fix
+
+### Fixed
+- v1.3.0 was tagged before `action.yml`'s own download URL was
+  bumped, so `uses: istrategeorge/AIcap@v1.3.0` fetched the v1.2.0
+  binary. No source changes beyond version strings — use v1.3.1+
+  instead of v1.3.0.
+
 ## [1.3.0] — 2026-07-09 — Conversion & distribution (Waves 14–15) + fixes
 
 ### Added — GTM: SEO guides + Marketplace prep (Wave 14)
