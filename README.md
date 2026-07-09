@@ -63,7 +63,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Run AIcap Compliance Scan
-        uses: istrategeorge/AIcap@v1.2.0
+        uses: istrategeorge/AIcap@v1.3.0
         with:
           api-key: ${{ secrets.AICAP_API_KEY }}
           scan-directory: '.'
