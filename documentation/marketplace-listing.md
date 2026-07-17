@@ -1,9 +1,11 @@
 # GitHub Marketplace Listing — Draft & Publication Checklist
 
-_Prepared 2026-07-06 (Wave 14). The listing itself is created through the
-GitHub UI when publishing a release; this file holds the copy, category
-choices, and the pre-flight checklist so publication is a 30-minute task,
-not a research project._
+_Prepared 2026-07-06 (Wave 14); status updated 2026-07-17. The listing
+is **live** at
+[github.com/marketplace/actions/continuous-ai-bom-scanner](https://github.com/marketplace/actions/continuous-ai-bom-scanner)
+(published from an early version). The listing body renders from `main`'s
+README, and each new release tag appears in the listing's version
+dropdown automatically — no re-publish step needed._
 
 ---
 
@@ -27,19 +29,18 @@ choosing categories. There is no separate listing document to submit.
       `branding` (shield / blue)
 - [x] `action.yml` has typed `inputs` and an `outputs` block
       (`compliance-status`, added Wave 14)
-- [x] Semver release tag exists (`v1.2.0`) with the linux-amd64 binary
-      attached
-- [ ] **Action name uniqueness** — "Continuous AI-BOM Scanner" must be
-      unique across Marketplace. The README badge already links to
-      `github.com/marketplace/actions/continuous-ai-bom-scanner`; verify
-      whether a prior listing exists under this account and reuse or
-      rename accordingly.
-- [ ] Two-factor authentication enabled on the publishing account
-      (required by GitHub)
-- [ ] Accept the GitHub Marketplace Developer Agreement (first-time
-      publish prompt)
-- [ ] README screenshots added (see shot list below) — listings with
-      images convert dramatically better
+- [x] Semver release tag exists (`v1.3.3`, 2026-07-17) with the
+      linux-amd64 binary attached
+- [x] **Action name uniqueness** — resolved: the listing already exists
+      under this account at the slug the README badge points to
+      (`continuous-ai-bom-scanner`).
+- [x] Two-factor authentication enabled on the publishing account
+      (implied — required for the existing publication)
+- [x] Accept the GitHub Marketplace Developer Agreement (accepted at
+      first publication)
+- [x] README screenshots added (v1.3.3) — five shots under
+      `documentation/screenshots/`, embedded in the README's
+      "See it in action" section
 - [ ] Optional: verified publisher badge (Settings → Developer settings;
       needs a verified domain — do this after `aicap.eu` is live)
 
@@ -53,11 +54,9 @@ choosing categories. There is no separate listing document to submit.
 ## action.yml metadata (current copy)
 
 - **Name:** `Continuous AI-BOM Scanner`
-- **Description:** `Automated EU AI Act compliance scanner. Detects AI
-  models, dependencies, and FinOps risks.`
-- Suggested sharper alternative (95 chars, deadline-aware — apply at next
-  release): `EU AI Act compliance in CI: AI-BOM, risk register, and Annex
-  IV documentation on every push.`
+- **Description:** `EU AI Act compliance in CI: AI-BOM, risk register,
+  and Annex IV documentation on every push.` (sharper deadline-aware
+  copy applied 2026-07-09; ships with v1.3.3)
 
 ## Release notes copy (for the publishing release)
 
@@ -69,7 +68,7 @@ choosing categories. There is no separate listing document to submit.
 > and an Annex IV technical documentation draft — the artefacts the EU AI
 > Act requires for high-risk systems from 2 August 2026.
 >
-> - Zero-config: `uses: istrategeorge/AIcap@v1.2.0` and you have a scan
+> - Zero-config: `uses: istrategeorge/AIcap@v1.3.3` and you have a scan
 > - Your source never leaves your runner; only the derived BOM syncs
 >   (opt-in, with an API key)
 > - Policy-as-code via `.aicap.yml` — exit codes gate merges (0/1/2)
@@ -78,31 +77,40 @@ choosing categories. There is no separate listing document to submit.
 > - Pro: hash-chained tamper-evident audit ledger + hosted, shareable
 >   Annex IV reports (EU-hosted: Scaleway Paris + Supabase Ireland)
 
-## README shot list (take before publishing)
+## README shot list — ✅ all taken (v1.3.3)
 
-1. **PR check output** — the scan summary + compliance verdict + badge
-   snippet in a GitHub Actions log (light theme, crop to the step).
-2. **Annex IV preview** — dashboard preview pane showing the generated
-   document with the Export PDF / Share buttons visible.
-3. **Audit ledger** — history table with several proof drills and the
-   chain-verified state.
-4. **Public shared report** — the `/?report=<token>` page; it doubles as
-   proof of the shareable-links feature.
+1. [x] **PR check output** — `ci-passing.png` (verdict + badge snippet,
+   light theme, cropped to the step). Bonus fifth shot:
+   `ci-blocking.png` showing the enforcement path (red job, exit 1).
+2. [x] **Annex IV preview** — `annex-iv-preview.png` (generated from
+   the clean `istrategeorge/aicap-demo` scan; Export PDF / Share /
+   Download visible).
+3. [x] **Audit ledger** — `audit-ledger.png`.
+4. [x] **Public shared report** — `public-shared-report.png`.
 
-Store originals under `documentation/screenshots/` and embed them near
-the top of the README (Marketplace renders the README as the listing
-body — the first screen matters most).
+Originals live under `documentation/screenshots/`, embedded in the
+README's "See it in action" section directly under the tagline —
+Marketplace renders the README as the listing body, so they're the
+first screen a visitor sees.
 
-## Publication steps (when ready)
+## Publication — ✅ done (early version); remaining polish
 
-1. Confirm checklist items above are green.
-2. Draft a new release from `main` (next tag, e.g. `v1.3.0`) — attach the
-   `aicap-linux-amd64` binary as with previous releases.
-3. Tick **"Publish this Action to the GitHub Marketplace"**, pick
-   Security + Continuous integration, paste the release-notes copy.
-4. Publish; verify the listing renders (README images, badges, inputs
-   table) and that the marketplace URL matches the badge already in the
-   README — fix the badge if the slug differs.
-5. Announce: the listing URL becomes the canonical install link in the
-   README quick-start, the GitLab/Bitbucket templates' comments, and the
-   landing page.
+The listing is live and updates automatically: README/screenshots
+render from `main`, new tags (v1.3.3) appear in the version dropdown,
+and `action.yml`'s name/description come from the latest release.
+
+Remaining items, all manual UI checks or blocked on other work:
+
+1. [ ] **Eyeball the live listing** — confirm the five screenshots
+   render, the description shows the new deadline-aware copy, and
+   v1.3.3 is selectable in the version dropdown.
+2. [ ] **Verify categories** — the early publication may predate the
+   Security + Continuous integration choice above. Editable at
+   repo → Releases → edit the marketplace listing. Security should be
+   primary (procurement-driven traffic).
+3. [ ] **Verified publisher badge** — blocked on the `aicap.eu` domain
+   (Settings → Developer settings → verified domain).
+4. [ ] **Announce** — once verified, make the Marketplace URL the
+   canonical install link on the landing page and in launch posts
+   (README quick-start + GitLab/Bitbucket templates already pin
+   v1.3.3).
