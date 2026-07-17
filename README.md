@@ -12,6 +12,28 @@
 
 ---
 
+## 📸 See it in action
+
+**CI enforces the policy, not just reports it** — passes clean, blocks on unmitigated high-risk deps, and prints a README badge either way:
+
+| ✅ Passing | 🚫 Blocking |
+|---|---|
+| ![Passing compliance scan in GitHub Actions](documentation/screenshots/ci-passing.png) | ![Blocked pipeline on unmitigated high-risk dependencies](documentation/screenshots/ci-blocking.png) |
+
+**Annex IV technical documentation, generated from the scan** — export to PDF, share a link, or download the markdown:
+
+![Generated Annex IV documentation preview with Export PDF, Share, and Download actions](documentation/screenshots/annex-iv-preview.png)
+
+**Shareable, tamper-evident reports** — send a link to an auditor or customer; no login required on their end:
+
+![Public shared Annex IV report page](documentation/screenshots/public-shared-report.png)
+
+**Every scan is hash-chained into an immutable audit ledger:**
+
+![Immutable proof-drill audit ledger table](documentation/screenshots/audit-ledger.png)
+
+---
+
 ## ✨ Features
 
 ### 🔍 AI Supply Chain Scanner
@@ -63,7 +85,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Run AIcap Compliance Scan
-        uses: istrategeorge/AIcap@v1.3.2
+        uses: istrategeorge/AIcap@v1.3.3
         with:
           api-key: ${{ secrets.AICAP_API_KEY }}
           scan-directory: '.'
