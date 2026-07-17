@@ -9,6 +9,18 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 Trial of new features lands on `development` first. Once a stable
 batch is ready, it is merged to `main` and tagged.
 
+## [1.3.3] — 2026-07-17 — Marketplace listing assets
+
+### Added
+- **README screenshots** — five images under `documentation/screenshots/`
+  showing the product end-to-end: a passing and a blocking CI run
+  (verdict + README badge snippet), the generated Annex IV preview
+  (Export PDF / Share / Download), a public shared report page, and
+  the immutable audit-ledger table. Embedded in a new "See it in
+  action" section near the top of the README, ahead of the feature
+  list — this is also the asset set for the GitHub Marketplace
+  listing (`github.com/marketplace/actions/continuous-ai-bom-scanner`).
+
 ## [1.3.2] — 2026-07-09 — Scanner false-positive fix
 
 ### Fixed
