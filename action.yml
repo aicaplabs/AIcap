@@ -26,8 +26,8 @@ runs:
     - name: Download AIcap Scanner
       shell: bash
       run: |
-        echo "⬇️ Downloading AIcap v1.3.2 statically-linked binary..."
-        curl -sL https://github.com/istrategeorge/AIcap/releases/download/v1.3.2/aicap-linux-amd64 -o aicap
+        echo "⬇️ Downloading AIcap v1.3.3 statically-linked binary..."
+        curl -sL https://github.com/istrategeorge/AIcap/releases/download/v1.3.3/aicap-linux-amd64 -o aicap
         chmod +x aicap
 
     - name: Execute AI-BOM Scan
