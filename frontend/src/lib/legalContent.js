@@ -16,7 +16,7 @@ _Last updated: ${LAST_UPDATED}_
 
 AIcap ("we", "us") provides a continuous AI Bill-of-Materials and EU AI Act
 compliance scanner: an open-source CLI plus a hosted dashboard and audit
-ledger (the "Service") at aicap.vercel.app. By creating an account or using
+ledger (the "Service") at aicap.dev. By creating an account or using
 the Service you accept these terms.
 
 ## 2. The two halves of AIcap
