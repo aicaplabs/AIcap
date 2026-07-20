@@ -116,8 +116,8 @@ func TestBadgeMarkdown_Passing(t *testing.T) {
 	if !strings.Contains(got, "passing-10b981") {
 		t.Errorf("badge=%q want passing/green", got)
 	}
-	if !strings.Contains(got, "https://aicap.eu") {
-		t.Errorf("badge=%q must link back to aicap.eu", got)
+	if !strings.Contains(got, "https://aicap.dev") {
+		t.Errorf("badge=%q must link back to aicap.dev", got)
 	}
 }
 
