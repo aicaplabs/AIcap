@@ -13,7 +13,7 @@
     }
   },
   "servers": [
-    {"url": "https://aicap.app", "description": "Production"},
+    {"url": "https://aicap.dev", "description": "Production"},
     {"url": "http://localhost:8080", "description": "Local development"}
   ],
   "tags": [
