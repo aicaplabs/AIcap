@@ -240,7 +240,7 @@ export function buildPrintDocument(markdown, { hash, projectName } = {}) {
 <body>
 ${body}
 <div class="doc-footer">
-${hashLine}<p>Generated ${generated} by AIcap — Continuous AI-BOM &amp; EU AI Act Compliance Scanner · https://aicap.eu</p>
+${hashLine}<p>Generated ${generated} by AIcap — Continuous AI-BOM &amp; EU AI Act Compliance Scanner · https://aicap.dev</p>
 </div>
 </body>
 </html>`;

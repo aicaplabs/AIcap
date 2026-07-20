@@ -19,7 +19,7 @@ const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const srcDir = path.join(root, 'guides');
 const outDir = path.join(root, 'public', 'guides');
 
-const SITE = 'https://aicap.vercel.app';
+const SITE = 'https://aicap.dev';
 
 function parseFrontmatter(raw) {
   const m = raw.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n([\s\S]*)$/);

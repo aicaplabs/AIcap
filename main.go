@@ -115,9 +115,9 @@ func main() {
 			apiURL := os.Getenv("AICAP_API_URL")
 			if apiURL == "" {
 				// EU-hosted backend (Wave 13 — Scaleway, fr-par/Paris).
-				// Overridable via AICAP_API_URL. Switch to the api.aicap.eu
-				// custom domain here once it's registered, so a binary
-				// release pins the stable domain rather than the .scw.cloud URL.
+				// Overridable via AICAP_API_URL. Switch to the api.aicap.dev
+				// custom domain here once it's wired, so a binary release
+				// pins the stable domain rather than the .scw.cloud URL.
 				apiURL = "https://aicap9ceb68db-aicap-backend.functions.fnc.fr-par.scw.cloud/api/save-proof"
 			}
 			req, err := http.NewRequest("POST", apiURL, bytes.NewBuffer(bomJSON))
@@ -144,7 +144,7 @@ func main() {
 
 		// README badge snippet: printed after the verdict so it shows
 		// the posture of this scan. Every badge in a customer README
-		// links back to aicap.eu — organic distribution.
+		// links back to aicap.dev — organic distribution.
 		fmt.Printf("\n[+] Add the compliance badge to your README:\n    %s\n", badgeMarkdown(bom))
 
 		os.Exit(exitCode)
@@ -343,7 +343,7 @@ func badgeMarkdown(bom types.AIBOM) string {
 		message, color = "action%20required", "f59e0b"
 	}
 	return fmt.Sprintf(
-		"[![EU AI Act — scanned by AIcap](https://img.shields.io/badge/EU%%20AI%%20Act-%s-%s)](https://aicap.eu)",
+		"[![EU AI Act — scanned by AIcap](https://img.shields.io/badge/EU%%20AI%%20Act-%s-%s)](https://aicap.dev)",
 		message, color,
 	)
 }
