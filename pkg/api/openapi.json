@@ -3,10 +3,10 @@
   "info": {
     "title": "AIcap API",
     "version": "1.2.0",
-    "description": "Continuous AI-BOM & Compliance Scanner for the EU AI Act. The API has two distinct caller types: the CLI (CI pipelines) authenticates via an `aicap_pro_sk_*` API key on `/api/save-proof`; the browser dashboard authenticates via a Supabase session JWT on every other authenticated route. See https://github.com/istrategeorge/AIcap.",
+    "description": "Continuous AI-BOM & Compliance Scanner for the EU AI Act. The API has two distinct caller types: the CLI (CI pipelines) authenticates via an `aicap_pro_sk_*` API key on `/api/save-proof`; the browser dashboard authenticates via a Supabase session JWT on every other authenticated route. See https://github.com/aicaplabs/AIcap.",
     "contact": {
       "name": "AIcap",
-      "url": "https://github.com/istrategeorge/AIcap"
+      "url": "https://github.com/aicaplabs/AIcap"
     },
     "license": {
       "name": "Apache-2.0"

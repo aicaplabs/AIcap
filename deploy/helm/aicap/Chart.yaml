@@ -8,9 +8,9 @@ description: |
 type: application
 version: 0.2.0
 appVersion: "1.1.0"
-home: https://github.com/istrategeorge/AIcap
+home: https://github.com/aicaplabs/AIcap
 sources:
-  - https://github.com/istrategeorge/AIcap
+  - https://github.com/aicaplabs/AIcap
 keywords:
   - ai-bom
   - compliance
@@ -19,5 +19,5 @@ keywords:
   - finops
   - annex-iv
 maintainers:
-  - name: George Istrate
-    url: https://github.com/istrategeorge
+  - name: AIcap
+    url: https://github.com/aicaplabs

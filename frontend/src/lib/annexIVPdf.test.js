@@ -81,8 +81,8 @@ describe('markdownToHtml', () => {
   });
 
   it('renders fenced code blocks with escaped, format-free content', () => {
-    const html = markdownToHtml('```yaml\nuses: istrategeorge/AIcap@v1.2.0\nkey: **not bold** <tag>\n```');
-    expect(html).toContain('<pre><code>uses: istrategeorge/AIcap@v1.2.0');
+    const html = markdownToHtml('```yaml\nuses: aicaplabs/AIcap@v1.2.0\nkey: **not bold** <tag>\n```');
+    expect(html).toContain('<pre><code>uses: aicaplabs/AIcap@v1.2.0');
     expect(html).toContain('**not bold** &lt;tag&gt;');
     expect(html).not.toContain('<strong>');
   });

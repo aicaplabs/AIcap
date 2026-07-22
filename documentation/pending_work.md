@@ -52,7 +52,7 @@ These are focused, mergeable items that collectively push overall readiness to ~
 
 **What:** After merging `development` → `main`, update `CHANGELOG.md` unreleased section to `[0.7.0]` and tag `v0.7.0` on `main`.
 
-**Why:** Downstream consumers pinning `istrategeorge/AIcap@v0.7.0` are blocked until the tag exists. Currently Wave 1–8 work is shipped but untagged.
+**Why:** Downstream consumers pinning `aicaplabs/AIcap@v0.7.0` are blocked until the tag exists. Currently Wave 1–8 work is shipped but untagged.
 
 **Scope:** 1 admin commit + git tag.
 

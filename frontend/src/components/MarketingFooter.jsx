@@ -27,13 +27,13 @@ export default function MarketingFooter() {
               <a className="hover:text-indigo-600" href="/guides/">Compliance guides</a>
             </li>
             <li>
-              <a className="hover:text-indigo-600" href="https://github.com/istrategeorge/AIcap">Source</a>
+              <a className="hover:text-indigo-600" href="https://github.com/aicaplabs/AIcap">Source</a>
             </li>
             <li>
-              <a className="hover:text-indigo-600" href="https://github.com/istrategeorge/AIcap/blob/main/CHANGELOG.md">Changelog</a>
+              <a className="hover:text-indigo-600" href="https://github.com/aicaplabs/AIcap/blob/main/CHANGELOG.md">Changelog</a>
             </li>
             <li>
-              <a className="hover:text-indigo-600" href="https://github.com/istrategeorge/AIcap/blob/main/CONTRIBUTING.md">Contributing</a>
+              <a className="hover:text-indigo-600" href="https://github.com/aicaplabs/AIcap/blob/main/CONTRIBUTING.md">Contributing</a>
             </li>
           </ul>
         </div>
@@ -67,7 +67,7 @@ export default function MarketingFooter() {
             <li>
               <a
                 className="hover:text-indigo-600"
-                href="https://github.com/istrategeorge/AIcap"
+                href="https://github.com/aicaplabs/AIcap"
               >
                 GitHub
               </a>

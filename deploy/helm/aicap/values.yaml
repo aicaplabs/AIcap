@@ -2,7 +2,7 @@
 # Override only what you need with `-f my-values.yaml` or `--set`.
 
 image:
-  repository: ghcr.io/istrategeorge/aicap
+  repository: ghcr.io/aicaplabs/aicap
   tag: ""              # defaults to .Chart.AppVersion when empty
   pullPolicy: IfNotPresent
   pullSecrets: []
