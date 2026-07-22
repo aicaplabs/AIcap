@@ -6,7 +6,7 @@
 #   1. Include it from your project's .gitlab-ci.yml:
 #
 #        include:
-#          - remote: 'https://raw.githubusercontent.com/istrategeorge/AIcap/main/templates/gitlab-ci.yml'
+#          - remote: 'https://raw.githubusercontent.com/aicaplabs/AIcap/main/templates/gitlab-ci.yml'
 #
 #      Then either rely on the default `aicap_compliance_scan` job or
 #      extend it (`extends: .aicap-base`) to customise per-pipeline.
@@ -22,11 +22,11 @@
 #                     unauthenticated against the SaaS).
 #
 # Optional CI/CD Variables:
-#   AICAP_VERSION   — pin a specific release tag (default: v1.3.3).
+#   AICAP_VERSION   — pin a specific release tag (default: v1.4.0).
 #   AICAP_OSV_DISABLED — set to "true" to skip OSV.dev CVE/GHSA enrichment.
 
 variables:
-  AICAP_VERSION: "v1.3.3"
+  AICAP_VERSION: "v1.4.0"
 
 # Reusable base — extend this for custom jobs (e.g. nightly full scans).
 .aicap-base:
@@ -36,7 +36,7 @@ variables:
     - apk add --no-cache curl ca-certificates
     - >
       curl -fsSL
-      "https://github.com/istrategeorge/AIcap/releases/download/${AICAP_VERSION}/aicap-linux-amd64"
+      "https://github.com/aicaplabs/AIcap/releases/download/${AICAP_VERSION}/aicap-linux-amd64"
       -o /usr/local/bin/aicap
     - chmod +x /usr/local/bin/aicap
   script:

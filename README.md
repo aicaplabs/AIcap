@@ -85,7 +85,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Run AIcap Compliance Scan
-        uses: istrategeorge/AIcap@v1.3.3
+        uses: aicaplabs/AIcap@v1.4.0
         with:
           api-key: ${{ secrets.AICAP_API_KEY }}
           scan-directory: '.'
@@ -108,7 +108,7 @@ AICAP_API_KEY=aicap_pro_sk_xxx aicap --cli ./my-project
 
 ```bash
 # Clone & run backend
-git clone https://github.com/istrategeorge/AIcap.git
+git clone https://github.com/aicaplabs/AIcap.git
 cd AIcap
 go run .
 

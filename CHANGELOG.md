@@ -9,6 +9,27 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 Trial of new features lands on `development` first. Once a stable
 batch is ready, it is merged to `main` and tagged.
 
+## [1.4.0] — 2026-07-22 — Organization move + domain consolidation
+
+### Changed
+- **Repository moved to the `aicaplabs` organization.** Every reference
+  updated from `istrategeorge/AIcap` to `aicaplabs/AIcap`: the Action's
+  binary download URL, README quick-start and clone URL, GitLab and
+  Bitbucket CI templates, the Helm chart's `home`/`sources`/maintainer
+  and image repository, the OpenAPI contact/description, the dashboard
+  CI snippet, and the CI-tutorial guides. GitHub redirects keep existing
+  `uses: istrategeorge/AIcap@…` pipelines working, but pinning the new
+  path is the durable form — the redirect only survives while no repo of
+  the old name is recreated.
+- **Primary domain is now `aicap.dev`** (registered; Cloudflare DNS +
+  Email Routing). Consolidates the earlier domain sweep: the CLI's
+  README badge link and the Annex IV PDF provenance footer point at
+  `aicap.dev` instead of the never-owned `aicap.eu`, and the OpenAPI
+  production server URL replaces the third-party-owned `aicap.app`.
+  Removing references to domains the project does not control closes a
+  squatting/phishing vector on distributed badges.
+- CI-tutorial guides now pin `v1.4.0` (they still referenced `v1.2.0`).
+
 ## [1.3.3] — 2026-07-17 — Marketplace listing assets
 
 ### Added
@@ -37,7 +58,7 @@ batch is ready, it is merged to `main` and tagged.
 
 ### Fixed
 - v1.3.0 was tagged before `action.yml`'s own download URL was
-  bumped, so `uses: istrategeorge/AIcap@v1.3.0` fetched the v1.2.0
+  bumped, so `uses: aicaplabs/AIcap@v1.3.0` fetched the v1.2.0
   binary. No source changes beyond version strings — use v1.3.1+
   instead of v1.3.0.
 
@@ -458,5 +479,6 @@ changes below shipped in v1.1.0.
 - CORS preflight fix (OPTIONS passes through auth middleware).
 - Free tier: 10 scans / 30-day rolling window.
 
-[Unreleased]: https://github.com/istrategeorge/AIcap/compare/v1.1.0...HEAD
-[1.1.0]: https://github.com/istrategeorge/AIcap/compare/v1.0.0-beta...v1.1.0
+[Unreleased]: https://github.com/aicaplabs/AIcap/compare/v1.4.0...HEAD
+[1.4.0]: https://github.com/aicaplabs/AIcap/compare/v1.3.3...v1.4.0
+[1.1.0]: https://github.com/aicaplabs/AIcap/compare/v1.0.0-beta...v1.1.0

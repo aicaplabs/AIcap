@@ -47,7 +47,7 @@ export default function PricingSection() {
             <PricingFeature>Up to 10 cloud-synced scans / month</PricingFeature>
           </ul>
           <a
-            href="https://github.com/istrategeorge/AIcap"
+            href="https://github.com/aicaplabs/AIcap"
             className="block mt-6 text-center bg-slate-100 hover:bg-slate-200 text-slate-900 font-bold py-3 rounded-lg transition"
           >
             Get the CLI
