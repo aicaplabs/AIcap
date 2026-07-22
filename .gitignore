@@ -4,3 +4,7 @@ aicap.exe
 
 # Documentation is tracked, but CI/test log artifacts dropped in there are not.
 /documentation/*.log
+
+# Local editor/assistant context — kept out of the repo.
+CLAUDE.md
+.claude/
