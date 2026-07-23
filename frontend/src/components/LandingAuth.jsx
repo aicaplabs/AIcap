@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Shield, CheckCircle, AlarmClock } from 'lucide-react';
+import { Shield, CheckCircle, AlarmClock, MailCheck } from 'lucide-react';
 
 import { supabase } from '../lib/supabase.js';
 import { daysUntilAIAct } from '../lib/deadline.js';
@@ -35,16 +35,33 @@ function DeadlineBadge() {
 export default function LandingAuth() {
   const [authForm, setAuthForm] = useState({ email: '', password: '', loading: false });
   const [isSignUp, setIsSignUp] = useState(false);
+  // Set when signUp succeeds but returns no session — i.e. email
+  // confirmation is enabled and the user must click the link first.
+  const [emailSent, setEmailSent] = useState(false);
 
   const handleAuth = async (e) => {
     e.preventDefault();
     setAuthForm(prev => ({ ...prev, loading: true }));
     try {
-      const fn = isSignUp
-        ? supabase.auth.signUp({ email: authForm.email, password: authForm.password })
-        : supabase.auth.signInWithPassword({ email: authForm.email, password: authForm.password });
-      const { error } = await fn;
-      if (error) throw error;
+      if (isSignUp) {
+        const { data, error } = await supabase.auth.signUp({
+          email: authForm.email,
+          password: authForm.password,
+        });
+        if (error) throw error;
+        // With email confirmation on, signUp returns a user but no
+        // session — nothing else happens until the link is clicked, so
+        // show a "check your email" panel instead of silently resetting
+        // the form. With confirmation off, a session is present and
+        // onAuthStateChange takes over exactly as before.
+        if (!data.session) setEmailSent(true);
+      } else {
+        const { error } = await supabase.auth.signInWithPassword({
+          email: authForm.email,
+          password: authForm.password,
+        });
+        if (error) throw error;
+      }
     } catch (err) {
       alert(err.message);
     } finally {
@@ -87,6 +104,28 @@ export default function LandingAuth() {
         {/* Login/Signup Form */}
         <div id="signup" className="bg-white p-8 rounded-2xl shadow-[0_8px_30px_rgb(0,0,0,0.12)] border border-slate-100 relative scroll-mt-8">
           <div className="absolute -top-6 -right-6 text-7xl opacity-5">🛡️</div>
+          {emailSent ? (
+            <div className="text-center py-6 relative z-10">
+              <div className="w-14 h-14 bg-indigo-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                <MailCheck className="w-7 h-7 text-indigo-600" />
+              </div>
+              <h3 className="text-2xl font-bold text-slate-900 mb-2">Check your email</h3>
+              <p className="text-slate-600 text-sm">
+                We sent a confirmation link to <strong>{authForm.email}</strong>.
+                Click it to activate your 14-day Pro trial — no card required.
+              </p>
+              <p className="text-slate-400 text-xs mt-4">
+                Didn't get it? Check your spam folder, or{' '}
+                <button
+                  onClick={() => { setEmailSent(false); setIsSignUp(true); }}
+                  className="text-indigo-600 hover:text-indigo-800 font-medium"
+                >
+                  try a different email
+                </button>.
+              </p>
+            </div>
+          ) : (
+          <>
           <div className="text-center mb-8 relative z-10">
             <h3 className="text-2xl font-bold text-slate-900">{isSignUp ? 'Start your Pro trial' : 'Sign in to AIcap Pro'}</h3>
             <p className="text-slate-500 text-sm mt-2">{isSignUp ? 'Generate your API key and connect your repositories.' : 'Access your immutable audit ledger.'}</p>
@@ -131,6 +170,8 @@ export default function LandingAuth() {
               {isSignUp ? 'Sign In' : 'Sign up for AIcap Pro'}
             </button>
           </div>
+          </>
+          )}
         </div>
       </div>
 
