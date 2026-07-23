@@ -9,6 +9,18 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 Trial of new features lands on `development` first. Once a stable
 batch is ready, it is merged to `main` and tagged.
 
+### Fixed
+- **Reverse trial now actually starts on signup.** The 14-day trial's
+  clock (`trial_ends_at`) is set by the `generate-key` INSERT, but the
+  frontend only called `generate-key` on the Stripe checkout return —
+  so a brand-new user was shown the paywall and could only enter the
+  product by paying, defeating the reverse-trial design and
+  contradicting the "Start your Pro trial" CTA. `fetchAndSetUserSession`
+  now materialises the key (and thus starts the trial) for any keyless
+  user on first sign-in, then re-reads `/api/me` so the router shows the
+  trial dashboard instead of the paywall. Frontend-only; the backend
+  already granted trial users Pro-equivalent access.
+
 ## [1.4.0] — 2026-07-22 — Organization move + domain consolidation
 
 ### Changed

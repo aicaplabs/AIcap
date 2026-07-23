@@ -166,30 +166,48 @@ function Dashboard() {
         trialDaysRemaining: me.trialDaysRemaining ?? null,
       };
 
-      if (sessionId) {
-        // Step 1: materialise the key immediately. The generate-key
-        // UPSERT preserves whatever tier the webhook later writes.
-        if (!nextSession.hasKey) {
-          try {
-            const response = await fetch(`${API_BASE_URL}/api/generate-key`, {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-                Authorization: `Bearer ${accessToken}`,
-              },
-            });
-            if (response.ok) {
-              const data = await response.json();
-              setRevealedKey(data.apiKey);
-              nextSession = { ...nextSession, hasKey: true };
-            } else if (response.status === 409) {
-              nextSession = { ...nextSession, hasKey: true };
-            }
-          } catch (keyError) {
-            console.error('Failed to materialise API key:', keyError);
+      // Materialise the API key for any keyless user. This is ALSO what
+      // starts the 14-day reverse trial — the generate-key INSERT sets
+      // trial_ends_at. It must run on a plain signup, not only on the
+      // checkout return, otherwise a brand-new user is shown the paywall
+      // before ever receiving the trial the landing page promised.
+      // Idempotent: skipped once hasKey is true, and the trial clock is
+      // set only on INSERT (ON CONFLICT preserves it), so re-logins and
+      // post-checkout runs never reset or re-start the trial.
+      if (!nextSession.hasKey) {
+        try {
+          const response = await fetch(`${API_BASE_URL}/api/generate-key`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${accessToken}`,
+            },
+          });
+          if (response.ok) {
+            const data = await response.json();
+            setRevealedKey(data.apiKey);
+            nextSession = { ...nextSession, hasKey: true };
+          } else if (response.status === 409) {
+            nextSession = { ...nextSession, hasKey: true };
           }
+        } catch (keyError) {
+          console.error('Failed to materialise API key:', keyError);
         }
+        // Re-read so trialDaysRemaining/tier reflect the row we just
+        // created — this is what flips the router from Paywall to the
+        // trial dashboard on a fresh signup.
+        const afterKey = await readMe();
+        nextSession = {
+          ...nextSession,
+          hasKey: !!afterKey.hasKey,
+          tier: afterKey.tier || nextSession.tier,
+          trialDaysRemaining: afterKey.trialDaysRemaining ?? nextSession.trialDaysRemaining,
+        };
+      }
 
+      if (sessionId) {
+        // Checkout return: confirm the upgrade to Pro (the key, if any,
+        // was already materialised above).
         // Step 2: short backend poll (3 × 1.5 s) for the normal webhook path.
         if (nextSession.tier !== 'pro') {
           for (let attempt = 0; attempt < 3; attempt++) {
