@@ -8,3 +8,6 @@ aicap.exe
 # Local editor/assistant context — kept out of the repo.
 CLAUDE.md
 .claude/
+
+# Local operator runbook — deliberately not tracked (owner's private notes).
+/documentation/pre-launch-checklist.md
