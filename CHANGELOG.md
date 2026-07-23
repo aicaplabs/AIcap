@@ -10,6 +10,14 @@ Trial of new features lands on `development` first. Once a stable
 batch is ready, it is merged to `main` and tagged.
 
 ### Fixed
+- **Trial "Subscribe to Pro" now reaches checkout.** The trial-banner
+  CTA was an `<a href="#pricing">` anchor, but `#pricing` only exists on
+  the public landing page — on the authenticated dashboard it scrolled
+  nowhere, so trial users had no way to convert. Extracted the Paywall's
+  checkout logic into a shared `useCheckout` hook; the banner button and
+  the Paywall now use the same tested path to Stripe. The banner is also
+  hidden once `tier === 'pro'`, so a user who subscribes mid-trial no
+  longer sees a "Subscribe" prompt.
 - **Reverse trial now actually starts on signup.** The 14-day trial's
   clock (`trial_ends_at`) is set by the `generate-key` INSERT, but the
   frontend only called `generate-key` on the Stripe checkout return —

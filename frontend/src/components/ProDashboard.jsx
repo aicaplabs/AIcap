@@ -1,6 +1,7 @@
 import React from 'react';
 
 import { apiFetch } from '../lib/supabase.js';
+import { useCheckout } from '../lib/useCheckout.js';
 import KeyVault from './KeyVault.jsx';
 import HistoryTable from './HistoryTable.jsx';
 import AnnexIVPreview from './AnnexIVPreview.jsx';
@@ -21,16 +22,21 @@ export default function ProDashboard({
   historicalProof,
   trialDaysRemaining,
 }) {
+  const { startCheckout, isCheckoutLoading } = useCheckout(onTokenRefresh);
   return (
     <div className="space-y-6 max-w-5xl mx-auto animate-in fade-in duration-500">
-      {trialDaysRemaining > 0 && (
+      {trialDaysRemaining > 0 && session.tier !== 'pro' && (
         <div className="bg-amber-50 border border-amber-200 rounded-lg px-4 py-3 flex items-center justify-between">
           <span className="text-amber-800 text-sm">
             <strong>{trialDaysRemaining} day{trialDaysRemaining !== 1 ? 's' : ''} left</strong> in your free trial
           </span>
-          <a href="#pricing" className="text-amber-700 text-sm font-medium underline hover:text-amber-900">
-            Subscribe to Pro →
-          </a>
+          <button
+            onClick={startCheckout}
+            disabled={isCheckoutLoading}
+            className="text-amber-700 text-sm font-medium underline hover:text-amber-900 disabled:opacity-50"
+          >
+            {isCheckoutLoading ? 'Redirecting…' : 'Subscribe to Pro →'}
+          </button>
         </div>
       )}
 
