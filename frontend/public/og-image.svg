@@ -1,0 +1,56 @@
+<svg width="1200" height="630" viewBox="0 0 1200 630" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#1e1b4b"/>
+      <stop offset="0.55" stop-color="#312e81"/>
+      <stop offset="1" stop-color="#4f46e5"/>
+    </linearGradient>
+    <linearGradient id="accent" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#818cf8"/>
+      <stop offset="1" stop-color="#c7d2fe"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="1200" height="630" fill="url(#bg)"/>
+
+  <!-- subtle grid dots, top-right, evokes 'scanning' -->
+  <g fill="#ffffff" opacity="0.06">
+    <circle cx="980" cy="90" r="4"/><circle cx="1030" cy="90" r="4"/><circle cx="1080" cy="90" r="4"/><circle cx="1130" cy="90" r="4"/>
+    <circle cx="980" cy="140" r="4"/><circle cx="1030" cy="140" r="4"/><circle cx="1080" cy="140" r="4"/><circle cx="1130" cy="140" r="4"/>
+    <circle cx="980" cy="190" r="4"/><circle cx="1030" cy="190" r="4"/><circle cx="1080" cy="190" r="4"/><circle cx="1130" cy="190" r="4"/>
+  </g>
+
+  <!-- brand row -->
+  <g transform="translate(80, 88)">
+    <!-- shield mark -->
+    <path d="M26 0 L52 11 L52 30 C52 46 40 58 26 64 C12 58 0 46 0 30 L0 11 Z"
+          fill="#a5b4fc"/>
+    <path d="M26 10 L42 17 L42 31 C42 41 35 49 26 53 C17 49 10 41 10 31 L10 17 Z"
+          fill="#1e1b4b"/>
+    <path d="M18 32 L24 38 L36 24" stroke="#a5b4fc" stroke-width="4" fill="none"
+          stroke-linecap="round" stroke-linejoin="round"/>
+    <text x="72" y="48" font-family="Arial, Helvetica, sans-serif" font-size="52"
+          font-weight="800" fill="#ffffff" letter-spacing="-1">AIcap</text>
+  </g>
+
+  <!-- headline -->
+  <text x="80" y="288" font-family="Arial, Helvetica, sans-serif" font-size="70"
+        font-weight="800" fill="#ffffff" letter-spacing="-2">EU AI Act compliance,</text>
+  <text x="80" y="372" font-family="Arial, Helvetica, sans-serif" font-size="70"
+        font-weight="800" fill="url(#accent)" letter-spacing="-2">generated from your CI pipeline.</text>
+
+  <!-- supporting line -->
+  <text x="80" y="440" font-family="Arial, Helvetica, sans-serif" font-size="30"
+        font-weight="400" fill="#c7d2fe">AI-BOM · Article 9 risk register · Annex IV documentation — on every commit.</text>
+
+  <!-- deadline pill -->
+  <g transform="translate(80, 496)">
+    <rect x="0" y="0" width="512" height="58" rx="29" fill="#f59e0b"/>
+    <text x="30" y="38" font-family="Arial, Helvetica, sans-serif" font-size="26"
+          font-weight="700" fill="#1e1b4b">High-risk obligations apply 2 Aug 2026</text>
+  </g>
+
+  <!-- footer -->
+  <text x="80" y="596" font-family="Arial, Helvetica, sans-serif" font-size="24"
+        font-weight="400" fill="#a5b4fc">aicap.dev · open-source CLI + EU-hosted audit ledger</text>
+</svg>
