@@ -141,6 +141,14 @@ function Dashboard() {
   const fetchAndSetUserSession = async (supabaseSession) => {
     if (fetchSessionRef.current) return;
     fetchSessionRef.current = true;
+    // New authenticated context: drop any per-user view state left over
+    // from a previously signed-in account in this tab. A fresh user must
+    // never see the previous account's proof drill, history, or revealed
+    // key lingering in the UI — even though the server never served it to
+    // them, showing it is unacceptable for a compliance product.
+    setHistoricalProof(null);
+    setHistoryData([]);
+    setRevealedKey('');
     try {
       const user = supabaseSession.user;
       const accessToken = supabaseSession.access_token;
@@ -274,6 +282,12 @@ function Dashboard() {
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, sbSession) => {
       if (!sbSession || !sbSession.user) {
         setSession(null);
+        // Clear per-user view state on sign-out so the next account to
+        // sign in (or a page left open on a shared machine) never sees
+        // the previous user's proof drill / history / key.
+        setHistoricalProof(null);
+        setHistoryData([]);
+        setRevealedKey('');
         return;
       }
       if (event === 'TOKEN_REFRESHED') {
