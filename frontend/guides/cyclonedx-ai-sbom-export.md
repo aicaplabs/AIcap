@@ -39,7 +39,7 @@ jobs:
 
       - name: Generate CycloneDX AI SBOM
         run: |
-          curl -sL https://github.com/aicaplabs/AIcap/releases/download/v1.4.0/aicap-linux-amd64 -o aicap
+          curl -sL https://github.com/aicaplabs/AIcap/releases/download/v1.7.0/aicap-linux-amd64 -o aicap
           chmod +x aicap
           ./aicap --cli . --cyclonedx > ai-sbom.cdx.json
 

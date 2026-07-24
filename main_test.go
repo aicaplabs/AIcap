@@ -1,7 +1,10 @@
 package main
 
 import (
+	"os"
+	"path/filepath"
 	"reflect"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -198,5 +201,79 @@ func TestParseCLIArgs_FinOpsFlag(t *testing.T) {
 	}
 	if !parseCLIArgs([]string{"./src", "--finops"}).IncludeCosts {
 		t.Error("--finops did not enable cost estimates")
+	}
+}
+
+// TestVersionReferencesAreConsistent fails when any user-facing install
+// instruction drifts from the canonical version in the repo-root VERSION
+// file.
+//
+// This exists because the drift already happened. v1.5.0 and v1.6.0 were
+// released, tagged, and deployed while the dashboard's CI snippet and two
+// *published* guides carried on telling readers to install v1.4.0 — the
+// release checklist bumped action.yml, the README, and the CI templates,
+// and nobody thought to grep the frontend. A version string duplicated
+// across six surfaces and bumped by hand will eventually disagree with
+// itself, and the surfaces users actually read are exactly the ones that
+// get forgotten.
+//
+// Adding a surface that quotes the version means adding it here.
+func TestVersionReferencesAreConsistent(t *testing.T) {
+	raw, err := os.ReadFile("VERSION")
+	if err != nil {
+		t.Fatalf("read VERSION: %v", err)
+	}
+	want := strings.TrimSpace(string(raw))
+	if !strings.HasPrefix(want, "v") {
+		t.Fatalf("VERSION = %q, want a v-prefixed tag", want)
+	}
+
+	// Files that must quote the current version, and the pattern that
+	// finds any version reference in them.
+	surfaces := []string{
+		"action.yml",
+		"README.md",
+		"templates/gitlab-ci.yml",
+		"templates/bitbucket-pipelines.yml",
+		"frontend/src/lib/version.js",
+	}
+	// Every published guide, globbed rather than enumerated. Listing them
+	// by hand is the same brittleness this test exists to catch: the
+	// first version of it named two guides and missed a third that was
+	// quietly telling readers to curl the v1.4.0 binary.
+	guides, err := filepath.Glob("frontend/guides/*.md")
+	if err != nil {
+		t.Fatalf("glob guides: %v", err)
+	}
+	if len(guides) == 0 {
+		t.Fatal("no guides found — did frontend/guides move?")
+	}
+	for _, g := range guides {
+		// Only guides that actually quote a version need checking.
+		body, err := os.ReadFile(g)
+		if err == nil && regexp.MustCompile(`v1\.\d+\.\d+`).Match(body) {
+			surfaces = append(surfaces, filepath.ToSlash(g))
+		}
+	}
+	versionRe := regexp.MustCompile(`v1\.\d+\.\d+`)
+
+	for _, path := range surfaces {
+		body, err := os.ReadFile(path)
+		if err != nil {
+			t.Errorf("read %s: %v", path, err)
+			continue
+		}
+		found := versionRe.FindAllString(string(body), -1)
+		if len(found) == 0 {
+			t.Errorf("%s quotes no version at all — did the install snippet move?", path)
+			continue
+		}
+
+		for _, got := range found {
+			if got != want {
+				t.Errorf("%s references %s but VERSION says %s — a user following this "+
+					"instruction installs the wrong release", path, got, want)
+			}
+		}
 	}
 }
