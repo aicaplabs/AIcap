@@ -6,8 +6,10 @@ import (
 	"crypto/sha256"
 	"database/sql"
 	_ "embed"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"io"
 	"log/slog"
 	"net/http"
@@ -19,6 +21,7 @@ import (
 	"aicap/pkg/auth"
 	"aicap/pkg/compliance"
 	"aicap/pkg/httplog"
+	"aicap/pkg/ledger"
 	"aicap/pkg/scanner"
 	"aicap/pkg/types"
 
@@ -40,6 +43,22 @@ func RegisterRoutes(mux *http.ServeMux, db *sql.DB, isCloudSaaS bool) {
 	// Build the CORS origin allowlist once at startup.
 	// VITE_FRONTEND_URL can be a single origin or a comma-separated list.
 	allowedOrigins := parseAllowedOrigins(os.Getenv("VITE_FRONTEND_URL"), isCloudSaaS)
+
+	// Ledger signing key (Wave 17). A nil signer means signing is not
+	// configured: rows are written unsigned and verification reports
+	// them as such, rather than writes failing. A *malformed* key is
+	// different — that is an operator who intended signing to happen, so
+	// it is logged loudly rather than silently degrading to unsigned.
+	ledgerSigner, err := ledger.LoadSigner()
+	if err != nil && !errors.Is(err, ledger.ErrNoKey) {
+		slog.Error("ledger signing key is set but unusable; entries will be written UNSIGNED",
+			slog.Any("error", err))
+		ledgerSigner = nil
+	}
+	if isCloudSaaS && !ledgerSigner.Enabled() {
+		slog.Warn("ledger signing is not configured; proof-drill entries will be unsigned " +
+			"and cannot be independently attributed (set AICAP_LEDGER_SIGNING_KEY)")
+	}
 
 	// cors applies consistent CORS headers for browser clients.
 	// For CLI callers (no Origin header) it is a no-op.
@@ -412,11 +431,23 @@ func RegisterRoutes(mux *http.ServeMux, db *sql.DB, isCloudSaaS bool) {
 
 		cryptoHash := computeChainHash(commitSha, []byte(canonicalBOM), prevHash.String)
 
+		// Sign the entry (Wave 17). The chain alone proves internal
+		// consistency; anyone with write access to this database could
+		// recompute every hash and produce a chain that verifies. The
+		// signing key lives in the process environment, never in the
+		// database, so rewriting history requires forging a signature
+		// rather than running an UPDATE.
+		entry := ledger.Entry{UserID: userID, CommitSha: commitSha, CryptoHash: cryptoHash}
+		signature := ledgerSigner.Sign(entry)
+		signingKeyID := ledgerSigner.KeyID()
+
 		if _, err := tx.ExecContext(r.Context(), `
-			INSERT INTO proof_drills (project_id, user_id, commit_sha, ai_bom_json, risk_register_state, annex_iv_markdown, crypto_hash, prev_hash)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+			INSERT INTO proof_drills (project_id, user_id, commit_sha, ai_bom_json, risk_register_state, annex_iv_markdown, crypto_hash, prev_hash, signature, signing_key_id)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
 			projectID, nullableUserID, commitSha, bomJSON, registerJSON, annexIVMarkdown, cryptoHash,
 			sql.NullString{String: prevHash.String, Valid: prevHash.Valid},
+			sql.NullString{String: signature, Valid: signature != ""},
+			sql.NullString{String: signingKeyID, Valid: signingKeyID != ""},
 		); err != nil {
 			httplog.From(r.Context()).Error("insert proof_drill failed", slog.Any("error", err))
 			http.Error(w, "Internal server error", http.StatusInternalServerError)
@@ -595,18 +626,22 @@ func RegisterRoutes(mux *http.ServeMux, db *sql.DB, isCloudSaaS bool) {
 		// path canonicalised through Postgres — see the matching cast in
 		// save-proof. Without this, JSONB normalisation makes every verify
 		// look like a tamper.
+		// user_id is read from the row rather than taken from the request
+		// context: the signature is bound to the owner recorded on the
+		// entry, and in local (non-SaaS) mode there is no authenticated
+		// caller to ask. Reading it back is also the stricter check —
+		// a row whose user_id was altered no longer verifies.
 		var rows *sql.Rows
 		var err error
 		if isCloudSaaS {
-			userID := auth.UserID(r)
 			rows, err = db.QueryContext(r.Context(), `
-				SELECT commit_sha, ai_bom_json::text, crypto_hash, prev_hash
+				SELECT commit_sha, ai_bom_json::text, crypto_hash, prev_hash, signature, user_id::text
 				FROM proof_drills
 				WHERE user_id = $1
-				ORDER BY created_at ASC, id ASC`, userID)
+				ORDER BY created_at ASC, id ASC`, auth.UserID(r))
 		} else {
 			rows, err = db.QueryContext(r.Context(), `
-				SELECT commit_sha, ai_bom_json::text, crypto_hash, prev_hash
+				SELECT commit_sha, ai_bom_json::text, crypto_hash, prev_hash, signature, user_id::text
 				FROM proof_drills
 				ORDER BY created_at ASC, id ASC`)
 		}
@@ -618,15 +653,16 @@ func RegisterRoutes(mux *http.ServeMux, db *sql.DB, isCloudSaaS bool) {
 		defer rows.Close()
 
 		var (
-			length         int
-			expectedPrev   string
-			seenFirst      bool
+			length       int
+			expectedPrev string
+			seenFirst    bool
+			signedCount  int
 		)
 		for rows.Next() {
 			var commitSha, storedHash string
 			var bomJSON []byte
-			var prevHash sql.NullString
-			if err := rows.Scan(&commitSha, &bomJSON, &storedHash, &prevHash); err != nil {
+			var prevHash, signature, rowUserID sql.NullString
+			if err := rows.Scan(&commitSha, &bomJSON, &storedHash, &prevHash, &signature, &rowUserID); err != nil {
 				httplog.From(r.Context()).Error("verify-chain scan failed", slog.Any("error", err))
 				http.Error(w, "Internal server error", http.StatusInternalServerError)
 				return
@@ -668,10 +704,57 @@ func RegisterRoutes(mux *http.ServeMux, db *sql.DB, isCloudSaaS bool) {
 				return
 			}
 
+			// Signature check (Wave 17). This is the check the hash chain
+			// cannot make: the chain proves the rows are consistent with
+			// each other, the signature proves this application wrote
+			// them. A present-but-invalid signature is a hard failure —
+			// somebody produced a row and attached a signature that does
+			// not verify.
+			//
+			// A *missing* signature is not a failure. Rows written before
+			// this feature, and rows written while no key was configured,
+			// legitimately have none. They are counted and reported so
+			// the caller can see exactly how much of the chain carries
+			// cryptographic attribution rather than being told an
+			// unqualified "ok".
+			if signature.Valid && signature.String != "" {
+				entry := ledger.Entry{
+					UserID:     rowUserID.String,
+					CommitSha:  commitSha,
+					CryptoHash: storedHash,
+				}
+				if !ledgerSigner.Verify(entry, signature.String) {
+					json.NewEncoder(w).Encode(map[string]any{
+						"ok":       false,
+						"brokenAt": storedHash,
+						"reason":   "ledger signature does not verify (row not written by this service, or signed under a different key)",
+						"length":   length,
+					})
+					return
+				}
+				signedCount++
+			}
+
 			expectedPrev = storedHash
 			seenFirst = true
 		}
-		json.NewEncoder(w).Encode(map[string]any{"ok": true, "length": length})
+		resp := map[string]any{
+			"ok":            true,
+			"length":        length,
+			"signed":        signedCount,
+			"unsigned":      length - signedCount,
+			"signingKeyId":  ledgerSigner.KeyID(),
+			"publicKeyPath": "/api/ledger/public-key",
+		}
+		// Say plainly when a chain carries no cryptographic attribution
+		// at all, rather than leaving "ok: true" to imply more than it
+		// means.
+		if signedCount < length {
+			resp["note"] = "Some entries are unsigned: they were written before ledger signing " +
+				"was enabled. Unsigned entries are consistent with the chain but cannot be " +
+				"attributed to this service."
+		}
+		json.NewEncoder(w).Encode(resp)
 	}
 	if isCloudSaaS {
 		mux.HandleFunc("/api/verify-chain", withCORS(auth.RequireSupabaseJWT(verifyChainHandler)))
@@ -811,16 +894,19 @@ func RegisterRoutes(mux *http.ServeMux, db *sql.DB, isCloudSaaS bool) {
 			return
 		}
 		var (
-			markdown, commitSha, cryptoHash string
-			projectName                     sql.NullString
-			createdAt                       time.Time
+			markdown, commitSha, cryptoHash    string
+			projectName                        sql.NullString
+			signature, signingKeyID, ownerUser sql.NullString
+			createdAt                          time.Time
 		)
 		err := db.QueryRow(
-			`SELECT pd.annex_iv_markdown, pd.commit_sha, pd.crypto_hash, pd.created_at, p.name
+			`SELECT pd.annex_iv_markdown, pd.commit_sha, pd.crypto_hash, pd.created_at, p.name,
+			        pd.signature, pd.signing_key_id, pd.user_id::text
 			 FROM proof_drills pd
 			 LEFT JOIN projects p ON p.id = pd.project_id
 			 WHERE pd.share_token = $1`, token,
-		).Scan(&markdown, &commitSha, &cryptoHash, &createdAt, &projectName)
+		).Scan(&markdown, &commitSha, &cryptoHash, &createdAt, &projectName,
+			&signature, &signingKeyID, &ownerUser)
 		if err == sql.ErrNoRows {
 			http.Error(w, "Report not found", http.StatusNotFound)
 			return
@@ -830,16 +916,96 @@ func RegisterRoutes(mux *http.ServeMux, db *sql.DB, isCloudSaaS bool) {
 			http.Error(w, "Internal server error", http.StatusInternalServerError)
 			return
 		}
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]any{
+
+		resp := map[string]any{
 			"markdown":    markdown,
 			"commitSha":   commitSha,
 			"cryptoHash":  cryptoHash,
 			"createdAt":   createdAt.Format(time.RFC3339),
 			"projectName": projectName.String,
-		})
+		}
+
+		// Attestation block (Wave 17). Without this, a shared report was
+		// a page the report's own subject could have written, and the
+		// recipient had no way to tell. Publishing the signature, the
+		// signed message, and the key that made it is what turns the
+		// share link into something an auditor can actually check —
+		// including offline, with no AIcap account and no trust in this
+		// endpoint beyond the public key itself.
+		//
+		// user_id is deliberately NOT returned: it is the tenant's
+		// internal identifier and the recipient does not need it. The
+		// signed message is published pre-composed instead, so the
+		// verifier gets exactly the bytes to check without us disclosing
+		// the tenant ID as a separate field.
+		if signature.Valid && signature.String != "" {
+			entry := ledger.Entry{
+				UserID:     ownerUser.String,
+				CommitSha:  commitSha,
+				CryptoHash: cryptoHash,
+			}
+			resp["attestation"] = map[string]any{
+				"signature":     signature.String,
+				"signedMessage": base64.StdEncoding.EncodeToString(entry.Message()),
+				"algorithm":     "Ed25519",
+				"signingKeyId":  signingKeyID.String,
+				"publicKeyPath": "/api/ledger/public-key",
+				"howToVerify": "Base64-decode signedMessage and signature, fetch the Ed25519 " +
+					"public key from publicKeyPath, and check the signature over those bytes. " +
+					"A valid signature proves this record was produced by AIcap and has not " +
+					"been altered since — including by the party that shared it with you.",
+			}
+		} else {
+			// Say so rather than omitting the field. A recipient who sees
+			// no attestation block should not have to wonder whether it
+			// was absent or merely not rendered.
+			resp["attestation"] = map[string]any{
+				"signature": "",
+				"note": "This entry is unsigned. It predates ledger signing, or signing was " +
+					"not configured when it was written. Its hash chain is intact but the " +
+					"record cannot be cryptographically attributed to AIcap.",
+			}
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(resp)
 	}
 	mux.HandleFunc("/api/public/report", publicReportHandler)
+
+	// /api/ledger/public-key publishes the Ed25519 public key used to
+	// sign ledger entries. Unauthenticated by design: a signature is
+	// only useful to someone who can obtain the verifying key, and
+	// requiring an account to fetch it would defeat the purpose of
+	// shareable reports.
+	//
+	// Publishing the key here means a verifier who trusts this endpoint
+	// can check any shared report. A verifier who does not should obtain
+	// the key out of band — it is stable, and belongs in a DPA annex or
+	// published documentation for exactly that reason.
+	mux.HandleFunc("/api/ledger/public-key", func(w http.ResponseWriter, r *http.Request) {
+		cors(w, r)
+		w.Header().Set("Access-Control-Allow-Methods", "GET, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+		if r.Method == http.MethodOptions {
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		if !ledgerSigner.Enabled() {
+			// 200 with enabled:false, not an error: "this deployment does
+			// not sign" is a legitimate, useful answer to the question.
+			json.NewEncoder(w).Encode(map[string]any{
+				"enabled": false,
+				"note":    "Ledger signing is not configured on this deployment.",
+			})
+			return
+		}
+		json.NewEncoder(w).Encode(map[string]any{
+			"enabled":   true,
+			"algorithm": "Ed25519",
+			"publicKey": ledgerSigner.PublicKeyBase64(),
+			"keyId":     ledgerSigner.KeyID(),
+		})
+	})
 
 	// --- Stripe checkout ----------------------------------------------------
 	// /api/create-checkout-session derives user_id + email from the verified
@@ -1586,4 +1752,3 @@ func computeChainHash(commitSha string, bomJSON []byte, prevHash string) string 
 	}
 	return hex.EncodeToString(h.Sum(nil))
 }
-

@@ -127,3 +127,30 @@ variable "stripe_webhook_secret" {
     your first paying user. See Wave 13 follow-ups.
   EOT
 }
+
+variable "ledger_signing_key" {
+  type        = string
+  sensitive   = true
+  default     = ""
+  description = <<-EOT
+    Base64 Ed25519 seed used to sign proof-drill ledger entries. Generate
+    one with `aicap --gen-ledger-key`.
+
+    OPTIONAL in the sense that the backend runs without it — entries are
+    written unsigned and /api/verify-chain reports them as such. But the
+    paid tier's central claim is that an auditor can verify a report
+    without taking the customer's word for it, and an unsigned ledger
+    cannot support that claim: the hash chain proves the rows are
+    consistent with each other, not that this service wrote them. Anyone
+    with write access to the database can recompute the whole chain.
+
+    Keep it out of the database and out of version control. This variable
+    lives in the gitignored terraform.tfvars; Scaleway stores it as a
+    secret environment variable (encrypted at rest in KMS), which is what
+    makes possession of the database insufficient to forge history.
+
+    Rotation: setting a new key does not invalidate existing entries, but
+    they can only be verified with the public key that signed them — so
+    publish retired public keys rather than discarding them.
+  EOT
+}

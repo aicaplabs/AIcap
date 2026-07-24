@@ -45,3 +45,67 @@ describe('PublicReport', () => {
     ).toBeInTheDocument();
   });
 });
+
+// --- Attestation notice (Wave 17) ---------------------------------------
+//
+// The share link is what an auditor actually receives. A signed record is
+// only useful to them if the page hands over the material to check it —
+// otherwise "signed" is decoration.
+describe('PublicReport attestation', () => {
+  const baseReport = {
+    markdown: '# Annex IV',
+    commitSha: 'deadbeefcafe1234',
+    cryptoHash: 'ab12cd34ef567890',
+    createdAt: '2026-07-01T10:00:00Z',
+    projectName: 'demo/repo',
+  };
+
+  it('publishes the material a recipient needs to verify a signed record', async () => {
+    globalThis.fetch.mockResolvedValueOnce(new Response(JSON.stringify({
+      ...baseReport,
+      attestation: {
+        signature: 'c2lnbmF0dXJlLWJ5dGVz',
+        signedMessage: 'YWljYXAtbGVkZ2VyLXYxfHV8Y3xo',
+        algorithm: 'Ed25519',
+        signingKeyId: '57ClNmBrM43IYL20',
+        publicKeyPath: '/api/ledger/public-key',
+      },
+    }), { status: 200 }));
+
+    render(<PublicReport token={'c'.repeat(64)} />);
+
+    expect(await screen.findByText(/Cryptographically signed/)).toBeInTheDocument();
+    // The bytes and the signature must both be on the page — a recipient
+    // cannot verify without them.
+    expect(screen.getByText('YWljYXAtbGVkZ2VyLXYxfHV8Y3xo')).toBeInTheDocument();
+    expect(screen.getByText('c2lnbmF0dXJlLWJ5dGVz')).toBeInTheDocument();
+    // And where to get the key.
+    expect(screen.getByText('/api/ledger/public-key')).toBeInTheDocument();
+  });
+
+  it('says plainly when a record is unsigned', async () => {
+    globalThis.fetch.mockResolvedValueOnce(new Response(JSON.stringify({
+      ...baseReport,
+      attestation: {
+        signature: '',
+        note: 'This entry is unsigned.',
+      },
+    }), { status: 200 }));
+
+    render(<PublicReport token={'d'.repeat(64)} />);
+
+    expect(await screen.findByText(/Not cryptographically signed/)).toBeInTheDocument();
+    expect(screen.queryByText(/verify this yourself/)).not.toBeInTheDocument();
+  });
+
+  it('renders without an attestation block at all', async () => {
+    // Backwards compatibility: an older backend returns no attestation
+    // field. The page must still render rather than crashing.
+    globalThis.fetch.mockResolvedValueOnce(new Response(JSON.stringify(baseReport), { status: 200 }));
+
+    render(<PublicReport token={'e'.repeat(64)} />);
+
+    expect(await screen.findByText('Annex IV')).toBeInTheDocument();
+    expect(screen.queryByText(/Cryptographically signed/)).not.toBeInTheDocument();
+  });
+});

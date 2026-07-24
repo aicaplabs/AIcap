@@ -21,6 +21,7 @@ import (
 	"aicap/pkg/finops"
 	"aicap/pkg/httplog"
 	"aicap/pkg/imagescan"
+	"aicap/pkg/ledger"
 	"aicap/pkg/migrate"
 	"aicap/pkg/scanner"
 	"aicap/pkg/types"
@@ -51,6 +52,28 @@ func main() {
 			log.Fatalf("migrate: %v", err)
 		}
 		fmt.Println("migrations applied")
+		return
+	}
+
+	// --gen-ledger-key prints a fresh Ed25519 seed for
+	// AICAP_LEDGER_SIGNING_KEY and exits. Operators should never have to
+	// hand-roll key material, and a weak or mistyped key silently
+	// degrades the ledger's central guarantee.
+	//
+	// Printed to stdout with the guidance on stderr, so the key can be
+	// piped into a secret store without capturing the prose with it.
+	if len(os.Args) > 1 && os.Args[1] == "--gen-ledger-key" {
+		key, err := ledger.GenerateSigningKey()
+		if err != nil {
+			log.Fatalf("generate ledger signing key: %v", err)
+		}
+		fmt.Println(key)
+		fmt.Fprintln(os.Stderr, "\nSet this as AICAP_LEDGER_SIGNING_KEY on the backend.")
+		fmt.Fprintln(os.Stderr, "Store it in your secret manager — it is never written to the database,")
+		fmt.Fprintln(os.Stderr, "which is precisely what stops anyone with database access from forging")
+		fmt.Fprintln(os.Stderr, "ledger history. Losing it does not corrupt existing entries, but new")
+		fmt.Fprintln(os.Stderr, "entries will be signed under a new key and old ones can only be verified")
+		fmt.Fprintln(os.Stderr, "with the old public key — so keep retired public keys published.")
 		return
 	}
 

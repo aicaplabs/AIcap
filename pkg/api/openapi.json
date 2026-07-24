@@ -13,14 +13,32 @@
     }
   },
   "servers": [
-    {"url": "https://aicap.dev", "description": "Production"},
-    {"url": "http://localhost:8080", "description": "Local development"}
+    {
+      "url": "https://aicap.dev",
+      "description": "Production"
+    },
+    {
+      "url": "http://localhost:8080",
+      "description": "Local development"
+    }
   ],
   "tags": [
-    {"name": "ci", "description": "CLI / CI pipeline endpoints (API key auth)."},
-    {"name": "dashboard", "description": "Browser dashboard endpoints (Supabase JWT auth)."},
-    {"name": "billing", "description": "Stripe billing + portal."},
-    {"name": "ops", "description": "Liveness, readiness, machine-readable spec."}
+    {
+      "name": "ci",
+      "description": "CLI / CI pipeline endpoints (API key auth)."
+    },
+    {
+      "name": "dashboard",
+      "description": "Browser dashboard endpoints (Supabase JWT auth)."
+    },
+    {
+      "name": "billing",
+      "description": "Stripe billing + portal."
+    },
+    {
+      "name": "ops",
+      "description": "Liveness, readiness, machine-readable spec."
+    }
   ],
   "components": {
     "securitySchemes": {
@@ -39,19 +57,26 @@
       "RateLimitLimit": {
         "name": "X-RateLimit-Limit",
         "in": "header",
-        "schema": {"type": "integer"},
+        "schema": {
+          "type": "integer"
+        },
         "description": "Per-user scan budget (free tier post-trial only)."
       },
       "RateLimitRemaining": {
         "name": "X-RateLimit-Remaining",
         "in": "header",
-        "schema": {"type": "integer"},
+        "schema": {
+          "type": "integer"
+        },
         "description": "Scans remaining after this request lands. Absent for Pro and trial users (unlimited)."
       },
       "RateLimitReset": {
         "name": "X-RateLimit-Reset",
         "in": "header",
-        "schema": {"type": "integer", "format": "int64"},
+        "schema": {
+          "type": "integer",
+          "format": "int64"
+        },
         "description": "Unix epoch (seconds) when the oldest in-window scan ages out, freeing one quota slot."
       }
     },
@@ -60,74 +85,188 @@
         "type": "object",
         "description": "AI Bill of Materials emitted by the CLI scanner. See pkg/types/types.go for the authoritative shape.",
         "properties": {
-          "projectName": {"type": "string"},
-          "commitSha": {"type": "string"},
-          "scannedFiles": {"type": "integer"},
-          "dependencies": {"type": "array", "items": {"type": "object"}},
-          "finOps": {"type": "array", "items": {"type": "object"}},
-          "finOpsCostEstimate": {"type": "object"},
-          "finOpsRecommendations": {"type": "array", "items": {"type": "object"}},
-          "scannedImages": {"type": "array", "items": {"type": "object"}},
-          "governance": {"type": "object"},
-          "policyViolations": {"type": "array", "items": {"type": "object"}},
-          "complianceStatus": {"type": "string"}
+          "projectName": {
+            "type": "string"
+          },
+          "commitSha": {
+            "type": "string"
+          },
+          "scannedFiles": {
+            "type": "integer"
+          },
+          "dependencies": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          },
+          "finOps": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          },
+          "finOpsCostEstimate": {
+            "type": "object"
+          },
+          "finOpsRecommendations": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          },
+          "scannedImages": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          },
+          "governance": {
+            "type": "object"
+          },
+          "policyViolations": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          },
+          "complianceStatus": {
+            "type": "string"
+          }
         },
-        "required": ["projectName"]
+        "required": [
+          "projectName"
+        ]
       },
       "SaveProofResponse": {
         "type": "object",
         "properties": {
-          "status": {"type": "string", "example": "success"},
-          "cryptoHash": {"type": "string", "description": "SHA-256 anchoring this row to the chain."},
-          "idempotent": {"type": "boolean", "description": "true when the (user_id, commit_sha) tuple was already on file."}
+          "status": {
+            "type": "string",
+            "example": "success"
+          },
+          "cryptoHash": {
+            "type": "string",
+            "description": "SHA-256 anchoring this row to the chain."
+          },
+          "idempotent": {
+            "type": "boolean",
+            "description": "true when the (user_id, commit_sha) tuple was already on file."
+          }
         },
-        "required": ["status", "cryptoHash", "idempotent"]
+        "required": [
+          "status",
+          "cryptoHash",
+          "idempotent"
+        ]
       },
       "ProofRecord": {
         "type": "object",
         "properties": {
-          "projectName": {"type": "string"},
-          "commitSha": {"type": "string"},
-          "cryptoHash": {"type": "string"},
-          "timestamp": {"type": "string", "format": "date-time"}
+          "projectName": {
+            "type": "string"
+          },
+          "commitSha": {
+            "type": "string"
+          },
+          "cryptoHash": {
+            "type": "string"
+          },
+          "timestamp": {
+            "type": "string",
+            "format": "date-time"
+          }
         }
       },
       "VerifyChainResponse": {
         "type": "object",
         "properties": {
-          "ok": {"type": "boolean"},
-          "checked": {"type": "integer"},
-          "brokenAt": {"type": "string", "description": "First crypto_hash that fails verification, if any."},
-          "reason": {"type": "string"}
+          "ok": {
+            "type": "boolean"
+          },
+          "checked": {
+            "type": "integer"
+          },
+          "brokenAt": {
+            "type": "string",
+            "description": "First crypto_hash that fails verification, if any."
+          },
+          "reason": {
+            "type": "string"
+          },
+          "signed": {
+            "type": "integer",
+            "description": "Entries carrying a valid Ed25519 signature."
+          },
+          "unsigned": {
+            "type": "integer",
+            "description": "Entries with no signature — consistent with the chain, but not attributable to this service."
+          },
+          "signingKeyId": {
+            "type": "string"
+          },
+          "publicKeyPath": {
+            "type": "string",
+            "example": "/api/ledger/public-key"
+          },
+          "note": {
+            "type": "string",
+            "description": "Present when some entries are unsigned, so ok:true is not read as more than it means."
+          }
         },
-        "required": ["ok"]
+        "required": [
+          "ok"
+        ]
       },
       "MeResponse": {
         "type": "object",
         "properties": {
-          "hasKey": {"type": "boolean"},
-          "tier": {"type": "string", "enum": ["free", "pro"]}
+          "hasKey": {
+            "type": "boolean"
+          },
+          "tier": {
+            "type": "string",
+            "enum": [
+              "free",
+              "pro"
+            ]
+          }
         },
-        "required": ["hasKey", "tier"]
+        "required": [
+          "hasKey",
+          "tier"
+        ]
       },
       "GenerateKeyResponse": {
         "type": "object",
         "properties": {
-          "apiKey": {"type": "string", "description": "Returned exactly once. Never persisted in plaintext."}
+          "apiKey": {
+            "type": "string",
+            "description": "Returned exactly once. Never persisted in plaintext."
+          }
         },
-        "required": ["apiKey"]
+        "required": [
+          "apiKey"
+        ]
       },
       "CheckoutSessionResponse": {
         "type": "object",
         "properties": {
-          "url": {"type": "string", "format": "uri"}
+          "url": {
+            "type": "string",
+            "format": "uri"
+          }
         },
-        "required": ["url"]
+        "required": [
+          "url"
+        ]
       },
       "ErrorResponse": {
         "type": "object",
         "properties": {
-          "error": {"type": "string"}
+          "error": {
+            "type": "string"
+          }
         }
       }
     }
@@ -135,15 +274,23 @@
   "paths": {
     "/api/save-proof": {
       "post": {
-        "tags": ["ci"],
+        "tags": [
+          "ci"
+        ],
         "summary": "Persist a scan as an immutable, hash-chained proof drill.",
         "description": "Called by `aicap --cli` after a scan. The CLI's `--cloud-sync` flag triggers this call with the BOM in the body. Rate-limited on free tier (10 scans per rolling 30 days). Idempotent on `(user_id, commit_sha)` — a CI retry returns 200 with `idempotent: true` and the original `cryptoHash`.",
-        "security": [{"apiKey": []}],
+        "security": [
+          {
+            "apiKey": []
+          }
+        ],
         "requestBody": {
           "required": true,
           "content": {
             "application/json": {
-              "schema": {"$ref": "#/components/schemas/AIBOM"}
+              "schema": {
+                "$ref": "#/components/schemas/AIBOM"
+              }
             }
           }
         },
@@ -151,220 +298,638 @@
           "201": {
             "description": "Proof drill persisted.",
             "headers": {
-              "X-RateLimit-Limit": {"$ref": "#/components/parameters/RateLimitLimit/schema"},
-              "X-RateLimit-Remaining": {"$ref": "#/components/parameters/RateLimitRemaining/schema"},
-              "X-RateLimit-Reset": {"$ref": "#/components/parameters/RateLimitReset/schema"}
+              "X-RateLimit-Limit": {
+                "$ref": "#/components/parameters/RateLimitLimit/schema"
+              },
+              "X-RateLimit-Remaining": {
+                "$ref": "#/components/parameters/RateLimitRemaining/schema"
+              },
+              "X-RateLimit-Reset": {
+                "$ref": "#/components/parameters/RateLimitReset/schema"
+              }
             },
-            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/SaveProofResponse"}}}
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SaveProofResponse"
+                }
+              }
+            }
           },
           "200": {
             "description": "Idempotent retry; the same (user_id, commit_sha) is already on file.",
-            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/SaveProofResponse"}}}
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SaveProofResponse"
+                }
+              }
+            }
           },
-          "401": {"description": "Missing or invalid API key.", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ErrorResponse"}}}},
+          "401": {
+            "description": "Missing or invalid API key.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
           "402": {
             "description": "Free-tier quota exhausted. Upgrade to Pro to continue.",
             "headers": {
-              "X-RateLimit-Limit": {"$ref": "#/components/parameters/RateLimitLimit/schema"},
-              "X-RateLimit-Remaining": {"$ref": "#/components/parameters/RateLimitRemaining/schema"},
-              "X-RateLimit-Reset": {"$ref": "#/components/parameters/RateLimitReset/schema"}
+              "X-RateLimit-Limit": {
+                "$ref": "#/components/parameters/RateLimitLimit/schema"
+              },
+              "X-RateLimit-Remaining": {
+                "$ref": "#/components/parameters/RateLimitRemaining/schema"
+              },
+              "X-RateLimit-Reset": {
+                "$ref": "#/components/parameters/RateLimitReset/schema"
+              }
             },
-            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ErrorResponse"}}}
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
           },
-          "500": {"description": "Internal server error.", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ErrorResponse"}}}}
+          "500": {
+            "description": "Internal server error.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
         }
       }
     },
     "/api/history": {
       "get": {
-        "tags": ["dashboard"],
+        "tags": [
+          "dashboard"
+        ],
         "summary": "List the caller's recent proof drills.",
-        "security": [{"supabaseJWT": []}],
+        "security": [
+          {
+            "supabaseJWT": []
+          }
+        ],
         "responses": {
           "200": {
             "description": "Most-recent drills first (limit 50).",
-            "content": {"application/json": {"schema": {"type": "array", "items": {"$ref": "#/components/schemas/ProofRecord"}}}}
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ProofRecord"
+                  }
+                }
+              }
+            }
           },
-          "401": {"description": "Missing or invalid JWT."}
+          "401": {
+            "description": "Missing or invalid JWT."
+          }
         }
       }
     },
     "/api/proof": {
       "get": {
-        "tags": ["dashboard"],
+        "tags": [
+          "dashboard"
+        ],
         "summary": "Fetch one proof drill with its rendered Annex IV markdown.",
-        "security": [{"supabaseJWT": []}],
+        "security": [
+          {
+            "supabaseJWT": []
+          }
+        ],
         "parameters": [
-          {"name": "cryptoHash", "in": "query", "required": true, "schema": {"type": "string"}}
+          {
+            "name": "cryptoHash",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
         ],
         "responses": {
-          "200": {"description": "Drill found.", "content": {"application/json": {"schema": {"type": "object"}}}},
-          "404": {"description": "No drill matched the cryptoHash for this user."},
-          "401": {"description": "Missing or invalid JWT."}
+          "200": {
+            "description": "Drill found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No drill matched the cryptoHash for this user."
+          },
+          "401": {
+            "description": "Missing or invalid JWT."
+          }
         }
       }
     },
     "/api/verify-chain": {
       "get": {
-        "tags": ["dashboard"],
+        "tags": [
+          "dashboard"
+        ],
         "summary": "Walk the caller's proof-drill hash chain and report the first divergence.",
-        "security": [{"supabaseJWT": []}],
+        "security": [
+          {
+            "supabaseJWT": []
+          }
+        ],
         "responses": {
-          "200": {"description": "Walk completed.", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/VerifyChainResponse"}}}},
-          "401": {"description": "Missing or invalid JWT."}
+          "200": {
+            "description": "Walk completed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VerifyChainResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid JWT."
+          }
         }
       }
     },
     "/api/share-report": {
       "post": {
-        "tags": ["dashboard"],
+        "tags": [
+          "dashboard"
+        ],
         "summary": "Mint (or re-return) the public share token for one of the caller's proof drills.",
         "description": "Idempotent: sharing an already-shared report returns the existing token with 200. The token is a 256-bit capability — anyone holding it can read that one report via `/api/public/report`.",
-        "security": [{"supabaseJWT": []}],
+        "security": [
+          {
+            "supabaseJWT": []
+          }
+        ],
         "requestBody": {
           "required": true,
-          "content": {"application/json": {"schema": {"type": "object", "properties": {"hash": {"type": "string", "description": "crypto_hash of the proof drill to share."}}, "required": ["hash"]}}}
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "hash": {
+                    "type": "string",
+                    "description": "crypto_hash of the proof drill to share."
+                  }
+                },
+                "required": [
+                  "hash"
+                ]
+              }
+            }
+          }
         },
         "responses": {
-          "201": {"description": "Token minted.", "content": {"application/json": {"schema": {"type": "object", "properties": {"token": {"type": "string", "description": "64 lowercase hex chars."}}}}}},
-          "200": {"description": "Report was already shared; existing token returned."},
-          "404": {"description": "No drill matched the hash for this user."},
-          "401": {"description": "Missing or invalid JWT."}
+          "201": {
+            "description": "Token minted.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "token": {
+                      "type": "string",
+                      "description": "64 lowercase hex chars."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "Report was already shared; existing token returned."
+          },
+          "404": {
+            "description": "No drill matched the hash for this user."
+          },
+          "401": {
+            "description": "Missing or invalid JWT."
+          }
         }
       },
       "delete": {
-        "tags": ["dashboard"],
+        "tags": [
+          "dashboard"
+        ],
         "summary": "Revoke the share token; the public link stops resolving immediately.",
-        "security": [{"supabaseJWT": []}],
-        "parameters": [{"name": "hash", "in": "query", "required": true, "schema": {"type": "string"}}],
+        "security": [
+          {
+            "supabaseJWT": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "hash",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
         "responses": {
-          "204": {"description": "Share revoked."},
-          "404": {"description": "No drill matched the hash for this user."},
-          "401": {"description": "Missing or invalid JWT."}
+          "204": {
+            "description": "Share revoked."
+          },
+          "404": {
+            "description": "No drill matched the hash for this user."
+          },
+          "401": {
+            "description": "Missing or invalid JWT."
+          }
         }
       }
     },
     "/api/public/report": {
       "get": {
-        "tags": ["dashboard"],
+        "tags": [
+          "dashboard"
+        ],
         "summary": "Resolve a shared report token. Unauthenticated — the token is the credential.",
-        "parameters": [{"name": "token", "in": "query", "required": true, "schema": {"type": "string", "pattern": "^[0-9a-f]{64}$"}}],
+        "parameters": [
+          {
+            "name": "token",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            }
+          }
+        ],
         "responses": {
-          "200": {"description": "Report found.", "content": {"application/json": {"schema": {"type": "object", "properties": {"markdown": {"type": "string"}, "commitSha": {"type": "string"}, "cryptoHash": {"type": "string"}, "createdAt": {"type": "string", "format": "date-time"}, "projectName": {"type": "string"}}}}}},
-          "404": {"description": "Token malformed, unknown, or revoked (indistinguishable by design)."}
+          "200": {
+            "description": "Report found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "markdown": {
+                      "type": "string"
+                    },
+                    "commitSha": {
+                      "type": "string"
+                    },
+                    "cryptoHash": {
+                      "type": "string"
+                    },
+                    "createdAt": {
+                      "type": "string",
+                      "format": "date-time"
+                    },
+                    "projectName": {
+                      "type": "string"
+                    },
+                    "attestation": {
+                      "type": "object",
+                      "description": "Ed25519 attestation for this ledger entry. Present on every response; `signature` is empty for entries written before ledger signing was enabled. Verify by base64-decoding signedMessage and signature and checking them against the key from /api/ledger/public-key — this requires no account and no trust in the party that shared the report.",
+                      "properties": {
+                        "signature": {
+                          "type": "string",
+                          "description": "Base64 Ed25519 signature, or \"\" when unsigned."
+                        },
+                        "signedMessage": {
+                          "type": "string",
+                          "description": "Base64 of the exact bytes that were signed."
+                        },
+                        "algorithm": {
+                          "type": "string",
+                          "example": "Ed25519"
+                        },
+                        "signingKeyId": {
+                          "type": "string",
+                          "description": "Short id of the key that signed this entry."
+                        },
+                        "publicKeyPath": {
+                          "type": "string",
+                          "example": "/api/ledger/public-key"
+                        },
+                        "howToVerify": {
+                          "type": "string"
+                        },
+                        "note": {
+                          "type": "string",
+                          "description": "Present instead of the verification fields when the entry is unsigned."
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Token malformed, unknown, or revoked (indistinguishable by design)."
+          }
         }
       }
     },
     "/api/me": {
       "get": {
-        "tags": ["dashboard"],
+        "tags": [
+          "dashboard"
+        ],
         "summary": "Return whether the caller has an API key on file and their current tier.",
-        "security": [{"supabaseJWT": []}],
+        "security": [
+          {
+            "supabaseJWT": []
+          }
+        ],
         "responses": {
-          "200": {"description": "OK.", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/MeResponse"}}}},
-          "401": {"description": "Missing or invalid JWT."}
+          "200": {
+            "description": "OK.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MeResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid JWT."
+          }
         }
       }
     },
     "/api/generate-key": {
       "post": {
-        "tags": ["dashboard"],
+        "tags": [
+          "dashboard"
+        ],
         "summary": "Mint the caller's API key. Returns the plaintext exactly once.",
         "description": "201 once on a new account or fresh-after-rotation. 409 if a key already exists — the caller must use `/api/rotate-key` to replace it.",
-        "security": [{"supabaseJWT": []}],
+        "security": [
+          {
+            "supabaseJWT": []
+          }
+        ],
         "responses": {
-          "201": {"description": "New key created.", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/GenerateKeyResponse"}}}},
-          "409": {"description": "Key already materialised. Use /api/rotate-key to replace it."},
-          "401": {"description": "Missing or invalid JWT."}
+          "201": {
+            "description": "New key created.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GenerateKeyResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Key already materialised. Use /api/rotate-key to replace it."
+          },
+          "401": {
+            "description": "Missing or invalid JWT."
+          }
         }
       }
     },
     "/api/rotate-key": {
       "post": {
-        "tags": ["dashboard"],
+        "tags": [
+          "dashboard"
+        ],
         "summary": "Revoke the current API key and mint a replacement.",
-        "security": [{"supabaseJWT": []}],
+        "security": [
+          {
+            "supabaseJWT": []
+          }
+        ],
         "responses": {
-          "200": {"description": "New key issued.", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/GenerateKeyResponse"}}}},
-          "401": {"description": "Missing or invalid JWT."}
+          "200": {
+            "description": "New key issued.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GenerateKeyResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid JWT."
+          }
         }
       }
     },
     "/api/create-checkout-session": {
       "post": {
-        "tags": ["billing"],
+        "tags": [
+          "billing"
+        ],
         "summary": "Create a Stripe Checkout session for Pro upgrade.",
-        "security": [{"supabaseJWT": []}],
+        "security": [
+          {
+            "supabaseJWT": []
+          }
+        ],
         "responses": {
-          "200": {"description": "Checkout URL.", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/CheckoutSessionResponse"}}}},
-          "401": {"description": "Missing or invalid JWT."}
+          "200": {
+            "description": "Checkout URL.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CheckoutSessionResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid JWT."
+          }
         }
       }
     },
     "/api/verify-checkout": {
       "get": {
-        "tags": ["billing"],
+        "tags": [
+          "billing"
+        ],
         "summary": "Confirm a returned Stripe checkout session and upsert Pro tier.",
         "description": "Used by the frontend's fallback chain when the Stripe webhook hasn't fired yet (or is disabled). Returns tier without minting a key — the frontend then calls `/api/generate-key`.",
-        "security": [{"supabaseJWT": []}],
+        "security": [
+          {
+            "supabaseJWT": []
+          }
+        ],
         "parameters": [
-          {"name": "session_id", "in": "query", "required": true, "schema": {"type": "string"}}
+          {
+            "name": "session_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
         ],
         "responses": {
-          "200": {"description": "Verified."},
-          "402": {"description": "Checkout not complete."},
-          "401": {"description": "Missing or invalid JWT."}
+          "200": {
+            "description": "Verified."
+          },
+          "402": {
+            "description": "Checkout not complete."
+          },
+          "401": {
+            "description": "Missing or invalid JWT."
+          }
         }
       }
     },
     "/api/customer-portal": {
       "post": {
-        "tags": ["billing"],
+        "tags": [
+          "billing"
+        ],
         "summary": "Create a Stripe Billing Portal session.",
-        "security": [{"supabaseJWT": []}],
+        "security": [
+          {
+            "supabaseJWT": []
+          }
+        ],
         "responses": {
-          "200": {"description": "Portal URL.", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/CheckoutSessionResponse"}}}},
-          "400": {"description": "Caller has no Stripe customer attached (free tier)."},
-          "401": {"description": "Missing or invalid JWT."}
+          "200": {
+            "description": "Portal URL.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CheckoutSessionResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Caller has no Stripe customer attached (free tier)."
+          },
+          "401": {
+            "description": "Missing or invalid JWT."
+          }
         }
       }
     },
     "/api/stripe-webhook": {
       "post": {
-        "tags": ["billing"],
+        "tags": [
+          "billing"
+        ],
         "summary": "Stripe event ingest.",
         "description": "Signature-verified via STRIPE_WEBHOOK_SECRET. Replay-protected via the stripe_events idempotency table.",
         "responses": {
-          "200": {"description": "Event accepted (or already seen)."},
-          "400": {"description": "Bad signature or malformed event."}
+          "200": {
+            "description": "Event accepted (or already seen)."
+          },
+          "400": {
+            "description": "Bad signature or malformed event."
+          }
         }
       }
     },
     "/livez": {
       "get": {
-        "tags": ["ops"],
+        "tags": [
+          "ops"
+        ],
         "summary": "Liveness probe. Always 200.",
-        "responses": {"200": {"description": "Process is alive."}}
+        "responses": {
+          "200": {
+            "description": "Process is alive."
+          }
+        }
       }
     },
     "/readyz": {
       "get": {
-        "tags": ["ops"],
+        "tags": [
+          "ops"
+        ],
         "summary": "Readiness probe. 503 if the DB is unreachable.",
         "responses": {
-          "200": {"description": "Ready to serve."},
-          "503": {"description": "DB ping failed."}
+          "200": {
+            "description": "Ready to serve."
+          },
+          "503": {
+            "description": "DB ping failed."
+          }
         }
       }
     },
     "/api/openapi.json": {
       "get": {
-        "tags": ["ops"],
+        "tags": [
+          "ops"
+        ],
         "summary": "Serve this OpenAPI document.",
         "responses": {
           "200": {
             "description": "OpenAPI 3.0 JSON.",
-            "content": {"application/json": {"schema": {"type": "object"}}}
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/ledger/public-key": {
+      "get": {
+        "tags": [
+          "dashboard"
+        ],
+        "summary": "Publish the Ed25519 public key used to sign ledger entries. Unauthenticated by design — a signature is useless to a recipient who cannot obtain the verifying key.",
+        "responses": {
+          "200": {
+            "description": "Key material, or enabled:false when this deployment does not sign.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "enabled": {
+                      "type": "boolean"
+                    },
+                    "algorithm": {
+                      "type": "string",
+                      "example": "Ed25519"
+                    },
+                    "publicKey": {
+                      "type": "string",
+                      "description": "Base64-encoded 32-byte Ed25519 public key."
+                    },
+                    "keyId": {
+                      "type": "string"
+                    },
+                    "note": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
           }
         }
       }

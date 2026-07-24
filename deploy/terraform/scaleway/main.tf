@@ -86,5 +86,9 @@ resource "scaleway_container" "backend" {
     SUPABASE_JWT_SECRET   = var.supabase_jwt_secret
     STRIPE_SECRET_KEY     = var.stripe_secret_key
     STRIPE_WEBHOOK_SECRET = var.stripe_webhook_secret
+
+    # Signs each proof-drill ledger entry. Held here, never in the
+    # database — that separation is the entire security property.
+    AICAP_LEDGER_SIGNING_KEY = var.ledger_signing_key
   }
 }

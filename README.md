@@ -61,8 +61,35 @@
 ### 🔒 Immutable Audit Ledger (Pro)
 - SHA-256 hash chain over every scan (commit + BOM + documentation), so editing,
   reordering, or deleting any historical entry breaks verification at every later link
+- **Ed25519 signature on every entry**, with the key held in the application
+  environment and never in the database — so possession of the database is not
+  the ability to rewrite history
 - Shareable report links — hand an auditor a URL without giving them an account
 - Cloud dashboard for historical Proof Drills with timestamp verification
+
+#### Verifying a shared report yourself
+
+A shared report is only evidence if the recipient can check it without
+trusting the sender. Every shared report carries an `attestation` block, and
+the public key is published unauthenticated:
+
+```bash
+# The report, including its signature and the exact bytes that were signed
+curl "https://<backend>/api/public/report?token=<share-token>"
+
+# The Ed25519 public key that signed it
+curl "https://<backend>/api/ledger/public-key"
+```
+
+Base64-decode `attestation.signedMessage` and `attestation.signature`, then
+verify them against that public key with any Ed25519 implementation. A valid
+signature proves the record was produced by AIcap and has not been altered
+since — including by the party who sent you the link.
+
+The hash chain alone could not tell you that: it proves the entries are
+consistent with each other, not who wrote them. Pin the public key out of band
+(a DPA annex, your own records) if you don't want to trust the endpoint serving
+it.
 
 **What the free CLI does and does not give you.** The scan, the Article 9 risk
 register, the live CVE enrichment, and the Annex IV draft are all free and run
@@ -192,6 +219,7 @@ allowed_licenses:
 | `GITHUB_REPOSITORY` | Auto-detected in GitHub Actions |
 | `GITHUB_SHA` | Auto-detected commit SHA |
 | `SUPABASE_DB_URL` | PostgreSQL connection for SaaS mode |
+| `AICAP_LEDGER_SIGNING_KEY` | Base64 Ed25519 seed signing each ledger entry (server-side). Generate with `aicap --gen-ledger-key`. Unset means entries are written unsigned and `/api/verify-chain` reports them as such |
 | `STRIPE_SECRET_KEY` | Stripe integration for Pro subscriptions |
 | `STRIPE_WEBHOOK_SECRET` | Stripe webhook signature verification |
 
