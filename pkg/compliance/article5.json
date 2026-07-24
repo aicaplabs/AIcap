@@ -1,0 +1,59 @@
+{
+  "_meta": {
+    "description": "Indicators of AI capabilities that fall within the scope of EU AI Act Article 5 (prohibited practices). Keyed by lower-cased component name as it appears in the AI-BOM.",
+    "what_this_is_not": "This is NOT a determination that anything is prohibited. Article 5 prohibitions turn almost entirely on PURPOSE, CONTEXT and DEPLOYMENT SETTING — who is subject to the system, where it is used, and what the output is used for. A static scan can see that a codebase links an emotion-inference library; it cannot see whether that library is pointed at employees during a performance review (prohibited) or at consenting participants in a lab study (not prohibited by Article 5). Every entry therefore carries the question a human has to answer.",
+    "why_it_exists": "Article 5 has applied since 2 February 2025 — earlier than the high-risk obligations this product is otherwise built around — and carries the Act's heaviest penalties (up to EUR 35 000 000 or 7% of worldwide annual turnover). A compliance scanner that inventories AI components while staying silent about the one chapter already in force and most expensive to breach is not doing its job.",
+    "penalty_reference": "Article 99(3): non-compliance with the Article 5 prohibitions is subject to administrative fines of up to EUR 35 000 000 or, for undertakings, up to 7% of total worldwide annual turnover for the preceding financial year, whichever is higher.",
+    "legal_notice": "Indicators are engineering heuristics, not legal advice. Classification under the AI Act is a legal question for qualified counsel."
+  },
+  "indicators": [
+    {
+      "components": ["fer", "deepface", "py-feat", "hsemotion", "hsemotion-onnx", "residual-masking-network", "emotion-recognition", "facial-emotion-recognition", "rmn"],
+      "practice": "Emotion inference from faces",
+      "article": "Article 5(1)(f)",
+      "prohibition": "Placing on the market, putting into service, or using AI systems to infer emotions of a natural person in the areas of workplace and education institutions, except where intended for medical or safety reasons.",
+      "applies_when": "The system infers emotions of people in a workplace or an education institution. Deployment outside those two settings is not caught by this prohibition, though it may still be high-risk under Annex III or subject to Article 50 transparency duties.",
+      "question": "Is this model ever applied to employees, job applicants, students, or trainees? If yes, is the purpose medical or safety-related?"
+    },
+    {
+      "components": ["opensmile", "pyaudioanalysis", "speechbrain", "audeer-opensmile", "vokaturi"],
+      "practice": "Emotion or affect inference from voice",
+      "article": "Article 5(1)(f)",
+      "prohibition": "The Article 5(1)(f) prohibition on emotion inference is not limited to facial analysis — it covers inference of emotions by any biometric means, including voice and speech prosody.",
+      "applies_when": "The system infers emotional state of people in a workplace or education institution. Speech toolkits are general-purpose; this indicator fires on the library, not on a confirmed emotion model.",
+      "question": "Is this toolkit used for emotion or sentiment inference (as opposed to transcription, diarisation, or speaker ID)? If so, are the subjects employees or students?"
+    },
+    {
+      "components": ["face-recognition", "face_recognition", "insightface", "facenet-pytorch", "arcface", "retina-face", "retinaface", "mtcnn", "dlib", "deepface", "facexlib", "buffalo-l"],
+      "practice": "Facial recognition / biometric identification",
+      "article": "Article 5(1)(e), 5(1)(h)",
+      "prohibition": "5(1)(e) prohibits creating or expanding facial recognition databases through untargeted scraping of facial images from the internet or CCTV footage. 5(1)(h) prohibits real-time remote biometric identification in publicly accessible spaces for law enforcement purposes, subject to narrow exhaustively-listed exceptions.",
+      "applies_when": "Either the face database is built by untargeted scraping, or identification happens in real time in a publicly accessible space for law-enforcement purposes. Consent-based 1:1 verification (unlocking your own device, matching a submitted selfie to a submitted ID) is outside both prohibitions.",
+      "question": "Where do the enrolled face images come from — were any scraped from the web or from CCTV without a targeted basis? Does matching run live against people in a public space?"
+    },
+    {
+      "components": ["mediapipe", "mediapipe-silicon", "opencv-contrib-python"],
+      "practice": "Face detection / landmark analysis toolkit",
+      "article": "Article 5(1)(e), 5(1)(f), 5(1)(g)",
+      "prohibition": "General computer-vision toolkits ship face-mesh, iris and expression modules that can implement emotion inference, biometric categorisation, or identification pipelines.",
+      "applies_when": "Only when the face/iris modules are actually used for emotion inference, categorisation of protected attributes, or identification. Most uses of these libraries are unrelated to Article 5.",
+      "question": "Are the face-mesh, iris, or expression modules used at all? If not, this indicator can be recorded as not applicable."
+    },
+    {
+      "components": ["fairface", "deepface-race", "age-gender-estimation", "faceattribute", "biometric-categorization"],
+      "practice": "Biometric categorisation of persons",
+      "article": "Article 5(1)(g)",
+      "prohibition": "Prohibits biometric categorisation systems that categorise natural persons individually based on their biometric data to deduce or infer their race, political opinions, trade union membership, religious or philosophical beliefs, sex life or sexual orientation.",
+      "applies_when": "The inferred attribute is one of the listed protected categories. Inferring age or gender is not in the prohibited list, though it may be high-risk under Annex III and is subject to other law (GDPR Article 9 in particular).",
+      "question": "Which attributes does this model output? Does any of them amount to race, political opinion, trade union membership, religious or philosophical belief, sex life, or sexual orientation?"
+    },
+    {
+      "components": ["rekognition", "amazon-rekognition", "azure-cognitiveservices-vision-face", "azure-ai-vision-face", "google-cloud-vision", "kairos-face", "clarifai"],
+      "practice": "Hosted face/biometric analysis API",
+      "article": "Article 5(1)(e), 5(1)(f), 5(1)(g), 5(1)(h)",
+      "prohibition": "Cloud vision APIs expose face detection, face matching, and in some cases emotion and demographic inference. Using a hosted provider does not move the obligation — the deployer of the AI system carries it.",
+      "applies_when": "Depends entirely on which operations are called and on whom. The dependency alone establishes capability, not use.",
+      "question": "Which specific operations are called (detect, compare, search-by-image, emotion/demographic attributes), and against whose images?"
+    }
+  ]
+}

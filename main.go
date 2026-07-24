@@ -125,26 +125,22 @@ func main() {
 
 		bomJSON, _ := json.MarshalIndent(bom, "", "  ")
 
-		if wantCycloneDX {
-			cdx := compliance.GenerateCycloneDXBOM(bom)
-			cdxJSON, _ := json.MarshalIndent(cdx, "", "  ")
-			fmt.Println(string(cdxJSON))
-		} else {
-			fmt.Println(string(bomJSON))
-		}
-
-		// Article 9 risk register + Annex IV draft (Wave 16).
+		// Article 9 risk register (Wave 16). Computed before any output
+		// is written because the CycloneDX serialisation needs it too:
+		// an SBOM that omits advisories AIcap already holds forces every
+		// downstream consumer to rediscover them.
 		//
-		// Both were previously computed only inside /api/save-proof, so a
-		// free CLI run emitted neither — while action.yml and the
-		// Marketplace listing promised "AI-BOM, risk register, and Annex
-		// IV documentation on every push". Both are pure functions that
-		// need no server, and the paid boundary is the hosted ledger,
-		// the shareable report, and history — none of which this gives
-		// away. § 5 of a locally generated document states plainly that
-		// it is unattested.
+		// The register and the Annex IV draft were previously computed
+		// only inside /api/save-proof, so a free CLI run emitted neither
+		// — while action.yml and the Marketplace listing promised
+		// "AI-BOM, risk register, and Annex IV documentation on every
+		// push". Both are pure functions that need no server, and the
+		// paid boundary is the hosted ledger, the shareable report, and
+		// history. § 5 of a locally generated document states plainly
+		// that it is unattested.
+		var register types.RiskRegister
 		if !opts.NoAnnexIV {
-			register := compliance.ComputeRiskRegister(bom)
+			register = compliance.ComputeRiskRegister(bom)
 
 			// OSV enrichment runs from the caller's own runner against a
 			// public API. Opt out with AICAP_OSV_DISABLED=true; the
@@ -154,7 +150,17 @@ func main() {
 				compliance.EnrichWithOSV(ctx, &register, bom, osvClient)
 				cancel()
 			}
+		}
 
+		if wantCycloneDX {
+			cdx := compliance.GenerateCycloneDXBOMWithRegister(bom, register)
+			cdxJSON, _ := json.MarshalIndent(cdx, "", "  ")
+			fmt.Println(string(cdxJSON))
+		} else {
+			fmt.Println(string(bomJSON))
+		}
+
+		if !opts.NoAnnexIV {
 			annexIV := compliance.GenerateAnnexIVMarkdownWithAttestation(
 				bom, register, types.Attestation{Anchored: false})
 
@@ -168,6 +174,45 @@ func main() {
 							f.Component, f.Version, v.ID, v.FixedVersion)
 					}
 				}
+			}
+
+			// Article 5 indicators (Wave 20). Printed before the Annex IV
+			// line because Article 5 is already in force and carries the
+			// Act's heaviest penalties — it should not scroll past
+			// underneath a file path. Worded as a review prompt, never a
+			// verdict: whether a prohibition applies turns on deployment
+			// context this scan cannot observe.
+			if len(bom.ProhibitedPractices) > 0 {
+				fmt.Printf("\n[!] EU AI Act Article 5 review required — %d component(s) with in-scope capabilities:\n",
+					len(bom.ProhibitedPractices))
+				for _, p := range bom.ProhibitedPractices {
+					fmt.Printf("    %s (%s) — %s\n", p.Component, p.Article, p.Practice)
+					fmt.Printf("      Q: %s\n", p.Question)
+				}
+				fmt.Println("    These are indicators, not findings of breach — Article 5 turns on purpose")
+				fmt.Println("    and deployment setting. The Annex IV draft states what each paragraph")
+				fmt.Println("    prohibits. Article 5 has applied since 2 February 2025; penalties reach")
+				fmt.Println("    EUR 35M or 7% of worldwide turnover (Article 99(3)).")
+			}
+
+			// Article 50 transparency duties (Wave 21). Compact by
+			// design — one line per duty plus any technical evidence
+			// found. The full requirement text lives in the Annex IV
+			// draft; repeating it on stdout would drown the scan result.
+			if len(bom.TransparencyObligations) > 0 {
+				fmt.Printf("\n[i] EU AI Act Article 50 transparency duties — %d applicable (from 2 Aug 2026):\n",
+					len(bom.TransparencyObligations))
+				for _, o := range bom.TransparencyObligations {
+					fmt.Printf("    %s — %s\n", o.Article, o.Obligation)
+					if o.EvidenceIsDetectable {
+						if len(o.EvidenceFound) > 0 {
+							fmt.Printf("      evidence: %s\n", strings.Join(o.EvidenceFound, ", "))
+						} else {
+							fmt.Println("      evidence: no machine-readable marking library detected")
+						}
+					}
+				}
+				fmt.Println("    These require disclosure, not classification. See the Annex IV draft.")
 			}
 
 			if opts.AnnexIVPath != "" {

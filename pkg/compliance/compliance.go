@@ -1,14 +1,17 @@
 package compliance
+
 import (
 	"crypto/sha256"
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
 	"aicap/pkg/types"
 )
+
 // GenerateAnnexIVMarkdown is the convenience entry point used by
 // callers (e.g. the CLI) that don't have a pre-computed risk
 // register on hand. It just delegates to the with-register variant
@@ -335,6 +338,23 @@ func GenerateAnnexIVMarkdownWithAttestation(bom types.AIBOM, register types.Risk
 	renderGovernanceSection(&sb, "Bias Monitoring", bom.Governance.BiasMonitoring)
 	sb.WriteString("\n")
 
+	// EU AI Act Article 5 review (Wave 20). Placed immediately before the
+	// provenance section so it is the last substantive thing a reader
+	// encounters — Article 5 is already in force and carries the Act's
+	// heaviest penalties, so it should not be buried mid-document.
+	// Omitted entirely when nothing matched, because printing "none
+	// detected" would read as a clearance this scan cannot give.
+	if art5 := RenderArticle5Markdown(bom.ProhibitedPractices); art5 != "" {
+		sb.WriteString(art5)
+	}
+
+	// Article 50 transparency duties follow Article 5: same "already
+	// dated" framing, and 50(3) is the floor that remains for emotion
+	// and biometric systems once the Article 5 analysis clears them.
+	if art50 := RenderArticle50Markdown(bom.TransparencyObligations); art50 != "" {
+		sb.WriteString(art50)
+	}
+
 	// Section 5: Proof Drill / provenance.
 	//
 	// The wording branches on attestation because the two artefacts make
@@ -563,11 +583,33 @@ func EvaluatePolicy(policy *types.PolicyConfig, bom types.AIBOM) []types.PolicyV
 
 // parseRequirementsTxt parses Python dependencies
 func GenerateCycloneDXBOM(bom types.AIBOM) types.CycloneDXBOM {
+	return GenerateCycloneDXBOMWithRegister(bom, types.RiskRegister{})
+}
+
+// GenerateCycloneDXBOMWithRegister emits the SBOM with the CycloneDX 1.5
+// `vulnerabilities` array populated from the risk register.
+//
+// AIcap held live OSV advisories and emitted an SBOM without them, so
+// every downstream consumer — Dependency-Track, GUAC, a procurement
+// portal — had to rediscover vulnerabilities AIcap had already found,
+// or more likely never learned about them at all. The data was in hand;
+// only the serialisation was missing.
+//
+// An empty register produces no `vulnerabilities` key rather than an
+// empty array, so "we did not look" and "we looked and found nothing"
+// stay distinguishable to a reader.
+func GenerateCycloneDXBOMWithRegister(bom types.AIBOM, register types.RiskRegister) types.CycloneDXBOM {
 	components := []types.CycloneDXComponent{}
+	// refsByComponent maps a lower-cased component name to its bom-ref
+	// so advisories can point at the component they affect.
+	refsByComponent := map[string]string{}
 
 	for _, dep := range bom.Dependencies {
+		ref := componentRef(dep)
+		refsByComponent[strings.ToLower(dep.Name)] = ref
 		comp := types.CycloneDXComponent{
 			Type:    ClassifyComponentType(dep),
+			BOMRef:  ref,
 			Name:    dep.Name,
 			Version: dep.Version,
 			PURL:    GeneratePURL(dep),
@@ -606,7 +648,90 @@ func GenerateCycloneDXBOM(bom types.AIBOM) types.CycloneDXBOM {
 				Version: bom.CommitSha,
 			},
 		},
-		Components: components,
+		Components:      components,
+		Vulnerabilities: cycloneDXVulnerabilities(register, refsByComponent),
+	}
+}
+
+// componentRef builds a stable bom-ref for a component. The purl is used
+// where one exists, since it is already a canonical identifier; findings
+// with no package identity (hardcoded models, exposed secrets, weight
+// files) fall back to a name+version form.
+func componentRef(dep types.AIDependency) string {
+	if purl := GeneratePURL(dep); purl != "" {
+		return purl
+	}
+	ref := "aicap:" + strings.ToLower(strings.ReplaceAll(dep.Name, " ", "-"))
+	if dep.Version != "" {
+		ref += "@" + dep.Version
+	}
+	return ref
+}
+
+// cycloneDXVulnerabilities projects the risk register's live advisories
+// into the CycloneDX 1.5 shape.
+//
+// Only advisories with a real identifier are emitted. Catalog findings
+// without live vulnerability data are risk-management entries, not
+// vulnerabilities: putting an OWASP category into a `vulnerabilities`
+// array would make a consumer's dependency scanner report a CVE that
+// does not exist. Those stay in the Annex IV risk register, where they
+// belong.
+func cycloneDXVulnerabilities(register types.RiskRegister, refs map[string]string) []types.CycloneDXVulnerability {
+	var out []types.CycloneDXVulnerability
+	for _, f := range register.Findings {
+		ref := refs[strings.ToLower(f.Component)]
+		for _, v := range f.LiveVulns {
+			if v.ID == "" {
+				continue
+			}
+			entry := types.CycloneDXVulnerability{
+				ID:          v.ID,
+				Source:      &types.CycloneDXVulnSource{Name: "OSV", URL: "https://osv.dev/vulnerability/" + v.ID},
+				Description: v.Summary,
+				Advisories:  []types.CycloneDXAdvisoryRef{{URL: "https://osv.dev/vulnerability/" + v.ID}},
+			}
+			if ref != "" {
+				entry.Affects = []types.CycloneDXAffects{{Ref: ref}}
+			}
+			if v.Severity != "" || v.CVSSVector != "" {
+				rating := types.CycloneDXRating{
+					Source:   &types.CycloneDXVulnSource{Name: "OSV"},
+					Severity: strings.ToLower(v.Severity),
+					Vector:   v.CVSSVector,
+				}
+				// `method` describes how the rating was produced. It is
+				// only set when a CVSS vector is actually present —
+				// claiming CVSSv31 for a bare "HIGH" label would
+				// misrepresent where the number came from.
+				if v.CVSSVector != "" {
+					rating.Method = cvssMethod(v.CVSSVector)
+				}
+				entry.Ratings = []types.CycloneDXRating{rating}
+			}
+			if v.FixedVersion != "" {
+				entry.Recommendation = "Upgrade to " + v.FixedVersion + " or later."
+			}
+			out = append(out, entry)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
+	return out
+}
+
+// cvssMethod maps a CVSS vector prefix to the CycloneDX method enum.
+func cvssMethod(vector string) string {
+	switch {
+	case strings.HasPrefix(vector, "CVSS:4"):
+		return "CVSSv4"
+	case strings.HasPrefix(vector, "CVSS:3.1"):
+		return "CVSSv31"
+	case strings.HasPrefix(vector, "CVSS:3"):
+		return "CVSSv3"
+	case strings.HasPrefix(vector, "AV:"):
+		return "CVSSv2"
+	default:
+		return "other"
 	}
 }
 
@@ -665,4 +790,3 @@ func EnrichWithOWASPRisks(bom *types.AIBOM) {
 		}
 	}
 }
-

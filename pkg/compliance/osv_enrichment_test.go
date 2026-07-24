@@ -523,3 +523,140 @@ func TestLooksLikeVersion(t *testing.T) {
 		}
 	}
 }
+
+// --- CycloneDX vulnerabilities array (Wave 19) ---------------------------
+
+func TestCycloneDX_EmitsVulnerabilitiesFromRegister(t *testing.T) {
+	// AIcap held live advisories and emitted an SBOM without them, so
+	// Dependency-Track and friends had to rediscover vulnerabilities it
+	// had already found — or never learned about them at all.
+	bom := types.AIBOM{
+		ProjectName: "demo",
+		Dependencies: []types.AIDependency{
+			{Name: "transformers", Version: "4.44.0", Ecosystem: "Python (pip)", RiskLevel: "High"},
+		},
+	}
+	reg := types.RiskRegister{Findings: []types.RiskFinding{{
+		Component: "transformers",
+		Version:   "4.44.0",
+		LiveVulns: []types.LiveVuln{{
+			ID:           "GHSA-abcd",
+			Summary:      "Arbitrary code execution",
+			Severity:     "HIGH",
+			CVSSVector:   "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H",
+			FixedVersion: "4.48.1",
+		}},
+	}}}
+
+	cdx := GenerateCycloneDXBOMWithRegister(bom, reg)
+
+	if len(cdx.Vulnerabilities) != 1 {
+		t.Fatalf("Vulnerabilities = %d, want 1", len(cdx.Vulnerabilities))
+	}
+	v := cdx.Vulnerabilities[0]
+	if v.ID != "GHSA-abcd" {
+		t.Errorf("id = %q", v.ID)
+	}
+	if v.Recommendation == "" || !strings.Contains(v.Recommendation, "4.48.1") {
+		t.Errorf("recommendation = %q, want the fixed version", v.Recommendation)
+	}
+	if len(v.Ratings) != 1 || v.Ratings[0].Severity != "high" {
+		t.Errorf("ratings = %+v, want the published severity", v.Ratings)
+	}
+	if v.Ratings[0].Method != "CVSSv31" {
+		t.Errorf("method = %q, want CVSSv31 from the vector prefix", v.Ratings[0].Method)
+	}
+
+	// The advisory must point at the component it affects, by the same
+	// bom-ref the component carries — otherwise a consumer cannot link
+	// them and the array is decoration.
+	if len(v.Affects) != 1 {
+		t.Fatalf("affects = %+v, want one reference", v.Affects)
+	}
+	var componentRef string
+	for _, c := range cdx.Components {
+		if c.Name == "transformers" {
+			componentRef = c.BOMRef
+		}
+	}
+	if componentRef == "" {
+		t.Fatal("component has no bom-ref, so nothing can reference it")
+	}
+	if v.Affects[0].Ref != componentRef {
+		t.Errorf("affects ref = %q, component bom-ref = %q — they must match", v.Affects[0].Ref, componentRef)
+	}
+}
+
+func TestCycloneDX_NoVulnerabilitiesKeyWhenNoneFound(t *testing.T) {
+	// Absent rather than empty: "we did not look" and "we looked and
+	// found nothing" must stay distinguishable.
+	cdx := GenerateCycloneDXBOM(types.AIBOM{ProjectName: "demo"})
+	if cdx.Vulnerabilities != nil {
+		t.Errorf("Vulnerabilities = %+v, want nil so the key is omitted", cdx.Vulnerabilities)
+	}
+}
+
+func TestCycloneDX_CatalogFindingsAreNotEmittedAsVulnerabilities(t *testing.T) {
+	// A curated OWASP mapping is a risk-management entry, not a CVE.
+	// Emitting it into the vulnerabilities array would make a consumer's
+	// scanner report a vulnerability that does not exist.
+	bom := types.AIBOM{Dependencies: []types.AIDependency{
+		{Name: "torch", Version: "2.4.0", Ecosystem: "Python (pip)", RiskLevel: "High"},
+	}}
+	reg := types.RiskRegister{Findings: []types.RiskFinding{{
+		Component:     "torch",
+		OwaspCategory: "ML04:2023 Model Theft",
+		Severity:      "High",
+		// No LiveVulns.
+	}}}
+
+	cdx := GenerateCycloneDXBOMWithRegister(bom, reg)
+	if len(cdx.Vulnerabilities) != 0 {
+		t.Errorf("catalog-only finding leaked into the vulnerabilities array: %+v", cdx.Vulnerabilities)
+	}
+}
+
+func TestCycloneDX_RatingOmitsMethodWithoutAVector(t *testing.T) {
+	// Claiming CVSSv31 for a bare "HIGH" label would misrepresent where
+	// the rating came from.
+	bom := types.AIBOM{Dependencies: []types.AIDependency{
+		{Name: "torch", Version: "2.4.0", Ecosystem: "Python (pip)"},
+	}}
+	reg := types.RiskRegister{Findings: []types.RiskFinding{{
+		Component: "torch",
+		LiveVulns: []types.LiveVuln{{ID: "GHSA-x", Severity: "MODERATE"}},
+	}}}
+
+	cdx := GenerateCycloneDXBOMWithRegister(bom, reg)
+	if len(cdx.Vulnerabilities) != 1 {
+		t.Fatalf("want one vulnerability, got %d", len(cdx.Vulnerabilities))
+	}
+	if m := cdx.Vulnerabilities[0].Ratings[0].Method; m != "" {
+		t.Errorf("method = %q, want empty when no CVSS vector was published", m)
+	}
+}
+
+func TestCycloneDX_VulnerabilityOrderIsStable(t *testing.T) {
+	bom := types.AIBOM{Dependencies: []types.AIDependency{
+		{Name: "torch", Version: "2.4.0", Ecosystem: "Python (pip)"},
+	}}
+	reg := types.RiskRegister{Findings: []types.RiskFinding{{
+		Component: "torch",
+		LiveVulns: []types.LiveVuln{
+			{ID: "GHSA-zzz"}, {ID: "CVE-2025-1"}, {ID: "GHSA-aaa"},
+		},
+	}}}
+
+	first := GenerateCycloneDXBOMWithRegister(bom, reg)
+	for i := 0; i < 5; i++ {
+		got := GenerateCycloneDXBOMWithRegister(bom, reg)
+		for j := range got.Vulnerabilities {
+			if got.Vulnerabilities[j].ID != first.Vulnerabilities[j].ID {
+				t.Fatal("vulnerability order varied between runs")
+			}
+		}
+	}
+	if first.Vulnerabilities[0].ID != "CVE-2025-1" {
+		t.Errorf("order = %s…, want sorted by id", first.Vulnerabilities[0].ID)
+	}
+}

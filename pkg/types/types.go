@@ -100,6 +100,14 @@ type AIBOM struct {
 	// recommend the matching inference-optimized family. Empty when no
 	// candidate finding matched or when training signals were detected.
 	FinOpsRecommendations []FinOpsRightsizing `json:"finOpsRecommendations,omitempty"`
+	// ProhibitedPractices (Wave 20) are EU AI Act Article 5 indicators.
+	// Empty means no *detectable* indicator matched — not a clearance,
+	// since several Article 5 prohibitions leave no trace in a manifest.
+	ProhibitedPractices []ProhibitedPracticeSignal `json:"prohibitedPractices,omitempty"`
+	// TransparencyObligations (Wave 21) are EU AI Act Article 50
+	// disclosure duties the system appears to attract. Like Article 5,
+	// an empty list is not a clearance.
+	TransparencyObligations []TransparencyObligation `json:"transparencyObligations,omitempty"`
 }
 
 // FinOpsRightsizing is one rightsizing suggestion for a detected
@@ -324,6 +332,54 @@ type CycloneDXBOM struct {
 	Version      int                  `json:"version"`
 	Metadata     CycloneDXMetadata    `json:"metadata"`
 	Components   []CycloneDXComponent `json:"components"`
+	// Vulnerabilities (Wave 19) is the CycloneDX 1.5 vulnerabilities
+	// array. AIcap already held live OSV advisories and emitted an SBOM
+	// without them, which meant Dependency-Track and every other
+	// consumer had to re-discover vulnerabilities AIcap had already
+	// found. Omitted entirely when the risk register carries none.
+	Vulnerabilities []CycloneDXVulnerability `json:"vulnerabilities,omitempty"`
+}
+
+// CycloneDXVulnerability is one advisory in the CycloneDX 1.5 shape.
+type CycloneDXVulnerability struct {
+	BOMRef string               `json:"bom-ref,omitempty"`
+	ID     string               `json:"id"`
+	Source *CycloneDXVulnSource `json:"source,omitempty"`
+	// Ratings carries the severity exactly as the advisory database
+	// published it. AIcap never computes a score from a CVSS vector —
+	// that would mean implementing the CVSS spec, and a compliance
+	// artefact asserting a severity it derived slightly wrong is worse
+	// than one quoting its source.
+	Ratings        []CycloneDXRating      `json:"ratings,omitempty"`
+	Description    string                 `json:"description,omitempty"`
+	Recommendation string                 `json:"recommendation,omitempty"`
+	Advisories     []CycloneDXAdvisoryRef `json:"advisories,omitempty"`
+	Affects        []CycloneDXAffects     `json:"affects,omitempty"`
+}
+
+type CycloneDXVulnSource struct {
+	Name string `json:"name,omitempty"`
+	URL  string `json:"url,omitempty"`
+}
+
+type CycloneDXAdvisoryRef struct {
+	URL string `json:"url"`
+}
+
+// CycloneDXRating carries a published severity. Score is deliberately
+// absent: the OSV `severity` field holds a CVSS *vector*, not a number,
+// and Vector is where that belongs.
+type CycloneDXRating struct {
+	Source   *CycloneDXVulnSource `json:"source,omitempty"`
+	Severity string               `json:"severity,omitempty"`
+	Method   string               `json:"method,omitempty"`
+	Vector   string               `json:"vector,omitempty"`
+}
+
+// CycloneDXAffects links an advisory to the component it affects, by
+// the component's bom-ref.
+type CycloneDXAffects struct {
+	Ref string `json:"ref"`
 }
 
 type CycloneDXMetadata struct {
@@ -440,4 +496,55 @@ type Drift struct {
 	Risk             RiskDrift         `json:"risk"`
 	ComplianceChange *ComplianceChange `json:"complianceChange,omitempty"`
 	Summary          DriftSummary      `json:"summary"`
+}
+
+// ProhibitedPracticeSignal is one Article 5 indicator: a detected
+// component whose capability falls within the scope of an EU AI Act
+// prohibited practice.
+//
+// It is deliberately not called a "violation" or a "finding". Article 5
+// prohibitions turn on purpose, context, and deployment setting, none of
+// which a static scan can observe — the same library is prohibited when
+// pointed at employees and unremarkable in a consented study. Every
+// signal therefore carries the text of what the cited paragraph actually
+// prohibits and the question a human must answer, and its Status is
+// "requires human assessment" rather than pass or fail.
+type ProhibitedPracticeSignal struct {
+	Component   string `json:"component"`
+	Version     string `json:"version,omitempty"`
+	Location    string `json:"location,omitempty"`
+	Practice    string `json:"practice"`
+	Article     string `json:"article"`
+	Prohibition string `json:"prohibition"`
+	AppliesWhen string `json:"appliesWhen"`
+	Question    string `json:"question"`
+	Status      string `json:"status"`
+}
+
+// TransparencyObligation is one EU AI Act Article 50 disclosure duty the
+// scanned system appears to attract.
+//
+// Grouped per obligation rather than per component: a project with eight
+// LLM libraries has one Article 50(1) duty, and reporting it eight times
+// would bury the sentence the reader has to act on.
+//
+// EvidenceIsDetectable records whether this duty can be discharged by
+// something a dependency scan could see at all. It matters because the
+// honest reading of an empty EvidenceFound differs completely between
+// the two cases: for Article 50(2) it means no watermarking library was
+// found, which is informative; for Article 50(1) it means nothing,
+// because that duty is discharged by interface copy.
+type TransparencyObligation struct {
+	ID          string `json:"id"`
+	Article     string `json:"article"`
+	Obligation  string `json:"obligation"`
+	Requirement string `json:"requirement"`
+	AppliesWhen string `json:"appliesWhen"`
+	Question    string `json:"question"`
+	// DischargedBy describes what actually satisfies the duty.
+	DischargedBy         string   `json:"dischargedBy"`
+	TriggeredBy          []string `json:"triggeredBy"`
+	EvidenceFound        []string `json:"evidenceFound,omitempty"`
+	EvidenceIsDetectable bool     `json:"evidenceIsDetectable"`
+	Status               string   `json:"status"`
 }

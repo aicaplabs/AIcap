@@ -9,6 +9,58 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 Trial of new features lands on `development` first. Once a stable
 batch is ready, it is merged to `main` and tagged.
 
+## [1.6.0] — 2026-07-24 — Regulatory breadth: Article 5, Article 50, CycloneDX advisories
+
+v1.5.0 closed the gaps in what the scanner could *see*. This release
+widens what it can say about it: two chapters of the AI Act that the
+product previously ignored, and the advisories it already held reaching
+the SBOM that downstream tooling actually consumes.
+
+### Added
+
+- **EU AI Act Article 5 — prohibited-practice indicators.** The first
+  coverage of a chapter already in force (2 February 2025) and carrying
+  the Act's heaviest penalties (Article 99(3): up to EUR 35M or 7% of
+  worldwide turnover). Detects components implementing emotion
+  inference, facial recognition, and biometric categorisation.
+  Deliberately never a verdict: Article 5 turns on purpose and
+  deployment setting that a static scan cannot observe, so each signal
+  states what the cited paragraph prohibits, the carve-outs, and the
+  question a human must answer. The section is omitted entirely when
+  nothing matches — social scoring, crime-risk prediction and
+  manipulative design leave no manifest trace, so "none detected" would
+  read as a clearance the scan cannot give.
+- **EU AI Act Article 50 — transparency obligations.** The four
+  disclosure duties that apply from 2 August 2026: tell people they are
+  interacting with an AI, mark synthetic output machine-readably,
+  inform people subject to emotion or biometric analysis, and disclose
+  deep fakes and AI-generated public-interest text. Grouped per
+  obligation rather than per component. Where a duty can be discharged
+  by a technical control that leaves a dependency trace — watermarking,
+  C2PA provenance — the report shows the evidence found; where it is
+  discharged by interface copy or an editorial process, it says so
+  rather than reporting a false gap.
+- **CycloneDX `vulnerabilities` array.** The export listed components
+  while the same scan held live OSV advisories for them, so every
+  consumer had to rediscover what AIcap already knew. Each entry links
+  to its component by `bom-ref`, quotes severity as published, carries
+  the CVSS vector rather than a derived score, and names an upgrade
+  target. Curated OWASP/MITRE findings are deliberately excluded — they
+  are risk-management entries, not CVEs, and emitting them would make a
+  consumer's scanner report vulnerabilities that do not exist.
+- **46 further catalog entries** (154 → 176): biometric and affect
+  analysis, voice cloning, face swap and talking-head video, plus the
+  watermarking and C2PA libraries that serve as Article 50 discharge
+  evidence.
+
+### Changed
+
+- No `modelCard` is emitted for detected models. We know a model's
+  identifier, licence, and where it was referenced; the fields that
+  make a model card useful — training data, evaluation, intended use —
+  we do not, and inventing them would put fabricated metadata into an
+  audit artefact. The CycloneDX guide states this openly.
+
 ## [1.5.0] — 2026-07-24 — Detection coverage, live advisories, signed ledger, drift
 
 The through-line of this release: a compliance tool's failure modes are
