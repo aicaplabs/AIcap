@@ -10,22 +10,38 @@
 // without rendering, and so the same template lives in one place instead
 // of being duplicated across the two preview blocks in the old App.jsx.
 
-// renderFinOpsBlock mirrors the backend's § 2(c) FinOps rendering:
-// per-finding lines with optional cost detail, plus a BOM-level
-// summary line + assumptions. Pulled out of the template literal so
-// the formatting logic stays readable.
-function renderFinOpsBlock(finOps, est) {
+// renderFinOpsBlock mirrors the backend's § 2(c) rendering
+// (pkg/compliance/compliance.go).
+//
+// This file is a hand-maintained mirror of the Go renderer, and
+// AnnexIVPreview builds the document client-side without ever calling
+// the backend — so a change to the Go template that is not made here
+// simply does not reach the dashboard. That is exactly how the Wave 23
+// FinOps split shipped to the CLI and the ledger while the dashboard
+// carried on rendering the old section.
+//
+// `includeCosts` mirrors AnnexIVOptions.IncludeCostEstimates and is off
+// by default for the same reason: Annex IV Section 2 requires the
+// compute description, not the price, and a list-price estimate beside
+// the Article 9 risk register gives a reader cause to discount both.
+// The dashboard's own FinOps table still shows the figures — that view
+// is read by engineers; this document is read by auditors.
+function renderFinOpsBlock(finOps, est, includeCosts) {
   const lines = finOps.map(f => {
     const base = `- **Resource:** ${f.resource}\n  - **Finding:** ${f.description}`;
     const c = f.estimatedCost;
     if (!c) return base;
+    // The instance family is compute description and stays either way.
+    if (!includeCosts) {
+      return base + `\n  - **Instance family:** ${c.cloud} \`${c.instanceFamily}\``;
+    }
     let block = base + `\n  - **Estimated cost:** $${c.hourlyUsdLow.toFixed(2)}–$${c.hourlyUsdHigh.toFixed(2)} /hr → **$${Math.round(c.monthlyUsdLow)}–$${Math.round(c.monthlyUsdHigh)} /month** (${c.cloud} family \`${c.instanceFamily}\`)`;
     if (c.spotMultiplier > 0) {
       block += `\n  - **Spot/preemptible projection:** **$${Math.round(c.spotMonthlyUsdLow)}–$${Math.round(c.spotMonthlyUsdHigh)} /month** (${Math.round(c.spotMultiplier * 100)}% of on-demand)`;
     }
     return block;
   });
-  if (est && (est.costedFindings > 0 || est.uncostedFindings > 0)) {
+  if (includeCosts && est && (est.costedFindings > 0 || est.uncostedFindings > 0)) {
     lines.push('');
     lines.push(`**Estimated total monthly cost:** $${Math.round(est.totalMonthlyUsdLow)}–$${Math.round(est.totalMonthlyUsdHigh)} ${est.currency} (across ${est.costedFindings} costed finding(s); ${est.uncostedFindings} additional finding(s) had no catalog match).`);
     if (est.totalSpotMonthlyUsdLow > 0 || est.totalSpotMonthlyUsdHigh > 0) {
@@ -55,8 +71,10 @@ function renderGovernance(title, signals) {
   return `- **${title}:** ${signals.length} signal(s) detected — see evidence below.\n${lines.join('\n')}`;
 }
 
-export function buildAnnexIVMarkdown(scanData, historicalProof) {
+export function buildAnnexIVMarkdown(scanData, historicalProof, options = {}) {
   if (historicalProof) return historicalProof.markdown;
+  // Mirrors the CLI's --finops flag. Default off; see renderFinOpsBlock.
+  const includeCosts = options.includeCosts === true;
   const deps = scanData.dependencies || [];
   const finOps = scanData.finOps || [];
   // Wave 7a: governance signals come from the backend's PerformScan when
@@ -81,9 +99,9 @@ ${deps.length > 0
   ? deps.map(d => `- **${d.name}** (v${d.version})${d.license ? ` [License: ${d.license}]` : ''}: ${d.description} (Risk: ${d.riskLevel})`).join('\n')
   : 'No AI dependencies detected.'}
 
-### 2(c) Hardware Requirements & Estimated Monthly Cost (FinOps Telemetry)
+### 2(c) Compute & Hardware Resources${includeCosts ? ' (with cost estimates)' : ''}
 ${finOps.length > 0
-  ? renderFinOpsBlock(finOps, scanData.finOpsCostEstimate)
+  ? renderFinOpsBlock(finOps, scanData.finOpsCostEstimate, includeCosts)
   : 'No specific hardware constraints or GPU requests detected in infrastructure manifests.'}
 ${(scanData.scannedImages?.length ?? 0) > 0 ? `
 ### 2(d) Container Images Inspected (Daemonless Layer Scan)
