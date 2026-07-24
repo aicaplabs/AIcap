@@ -199,3 +199,158 @@ version = "2.1.0"
 		}
 	}
 }
+
+// --- Wave 16: PEP 621 arrays + the requirements-file family -----------
+//
+// Both gaps below produced the same failure mode: a project declaring
+// its AI stack in a perfectly standard place scanned clean and reported
+// "Passed". These tests pin the shapes that regression would hit first.
+
+func TestParsePyProjectToml_PEP621DependencyArray(t *testing.T) {
+	path := createTempFile(t, "pyproject.toml", `[build-system]
+requires = ["hatchling"]
+
+[project]
+name = "demo"
+version = "0.1.0"
+dependencies = [
+  "openai>=1.40.0",
+  "torch==2.4.0",
+  "requests",
+  "transformers[torch]==4.44.0",
+]
+`)
+	deps := parsePyProjectToml(path)
+
+	byName := map[string]string{}
+	for _, d := range deps {
+		byName[d.Name] = d.Version
+	}
+	if len(deps) != 3 {
+		t.Fatalf("got %d deps, want 3 (openai, torch, transformers; requests is not an AI library): %#v", len(deps), deps)
+	}
+	if byName["torch"] != "2.4.0" {
+		t.Errorf("torch version = %q, want 2.4.0", byName["torch"])
+	}
+	if byName["transformers"] != "4.44.0" {
+		t.Errorf("transformers version = %q, want 4.44.0 (extras must not break the parse)", byName["transformers"])
+	}
+	if _, ok := byName["openai"]; !ok {
+		t.Errorf("openai not detected: %#v", deps)
+	}
+}
+
+func TestParsePyProjectToml_PEP621SingleLineArray(t *testing.T) {
+	path := createTempFile(t, "pyproject.toml", `[project]
+dependencies = ["langchain==0.2.0", "flask"]
+`)
+	deps := parsePyProjectToml(path)
+	if len(deps) != 1 || deps[0].Name != "langchain" {
+		t.Fatalf("got %#v, want a single langchain dep", deps)
+	}
+}
+
+func TestParsePyProjectToml_OptionalDependencies(t *testing.T) {
+	path := createTempFile(t, "pyproject.toml", `[project]
+name = "demo"
+dependencies = ["flask"]
+
+[project.optional-dependencies]
+gpu = ["torch==2.4.0", "vllm==0.6.0"]
+dev = ["pytest"]
+`)
+	deps := parsePyProjectToml(path)
+
+	byName := map[string]bool{}
+	for _, d := range deps {
+		byName[d.Name] = true
+	}
+	if !byName["torch"] || !byName["vllm"] {
+		t.Fatalf("optional-dependency extras not scanned — GPU stacks are usually declared there: %#v", deps)
+	}
+}
+
+func TestParsePyProjectToml_PoetryTableStillWorks(t *testing.T) {
+	// The pre-existing Poetry shape must keep parsing unchanged.
+	path := createTempFile(t, "pyproject.toml", `[tool.poetry.dependencies]
+python = "^3.11"
+openai = "^1.12.0"
+torch = {version = ">=2.0"}
+`)
+	deps := parsePyProjectToml(path)
+	if len(deps) != 2 {
+		t.Fatalf("got %d deps, want 2 (openai + torch): %#v", len(deps), deps)
+	}
+}
+
+func TestIsRequirementsFile(t *testing.T) {
+	cases := map[string]bool{
+		"requirements.txt":                        true,
+		"requirements-dev.txt":                    true,
+		"requirements_test.txt":                   true,
+		"requirements.prod.txt":                   true,
+		filepath.Join("requirements", "base.txt"): true,
+		filepath.Join("src", "requirements.txt"):  true,
+		"README.txt":                              false,
+		"notes.txt":                               false,
+		filepath.Join("docs", "install.txt"):      false,
+		"requirements.yml":                        false,
+	}
+	for path, want := range cases {
+		if got := isRequirementsFile(path); got != want {
+			t.Errorf("isRequirementsFile(%q) = %v, want %v", path, got, want)
+		}
+	}
+}
+
+func TestParseRequirementSpec(t *testing.T) {
+	cases := []struct {
+		spec        string
+		wantName    string
+		wantVersion string
+		wantOK      bool
+	}{
+		{"openai==1.40.0", "openai", "1.40.0", true},
+		{"transformers[torch]>=4.40", "transformers", "4.40", true},
+		{"langchain", "langchain", "unknown", true},
+		{`torch==2.4.0 ; python_version < "3.13"`, "torch", "2.4.0", true},
+		{"openai==1.40.0  # pinned for reproducibility", "openai", "1.40.0", true},
+		{"OpenAI==1.40.0", "openai", "1.40.0", true},
+		// Not plain named requirements — must not become packages.
+		{"-r base.txt", "", "", false},
+		{"--index-url https://pypi.org/simple", "", "", false},
+		{"git+https://github.com/org/repo.git", "", "", false},
+		{".", "", "", false},
+		{"", "", "", false},
+	}
+	for _, c := range cases {
+		name, version, ok := parseRequirementSpec(c.spec)
+		if ok != c.wantOK || name != c.wantName || (ok && version != c.wantVersion) {
+			t.Errorf("parseRequirementSpec(%q) = (%q, %q, %v), want (%q, %q, %v)",
+				c.spec, name, version, ok, c.wantName, c.wantVersion, c.wantOK)
+		}
+	}
+}
+
+func TestPerformScan_ScansRequirementsFamilyAndPEP621(t *testing.T) {
+	dir := createTempDir(t, map[string]string{
+		"pyproject.toml":        "[project]\ndependencies = [\"openai==1.40.0\"]\n",
+		"requirements-dev.txt":  "transformers==4.44.0\n",
+		"requirements/base.txt": "torch==2.4.0\n",
+	})
+
+	bom := PerformScan(dir)
+
+	byName := map[string]bool{}
+	for _, d := range bom.Dependencies {
+		byName[d.Name] = true
+	}
+	for _, want := range []string{"openai", "transformers", "torch"} {
+		if !byName[want] {
+			t.Errorf("PerformScan missed %q: %#v", want, bom.Dependencies)
+		}
+	}
+	if bom.Compliance == "Passed" {
+		t.Error("compliance status is Passed despite high-risk deps — this is the false-negative Wave 16 fixed")
+	}
+}

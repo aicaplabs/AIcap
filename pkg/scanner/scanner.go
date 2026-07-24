@@ -111,7 +111,11 @@ func PerformScan(scanDir string) types.AIBOM {
 
 		if !info.IsDir() {
 			bom.ScannedFiles++
-			if info.Name() == "requirements.txt" {
+			// Wave 16: match the whole requirements-file family, not
+			// just the exact name — requirements-dev.txt and
+			// requirements/base.txt are as common as requirements.txt
+			// and were previously skipped entirely.
+			if isRequirementsFile(path) {
 				deps := parseRequirementsTxt(path)
 				bom.Dependencies = append(bom.Dependencies, deps...)
 				bias, defenses := detectGovernanceFromManifest(path)
@@ -181,6 +185,14 @@ func PerformScan(scanDir string) types.AIBOM {
 				bom.Governance.TrainingData = append(bom.Governance.TrainingData, training...)
 				bom.Governance.BiasMonitoring = append(bom.Governance.BiasMonitoring, bias...)
 				bom.Governance.PromptInjectionDefenses = append(bom.Governance.PromptInjectionDefenses, defenses...)
+			}
+
+			// Wave 16: Jupyter notebooks. Previously unscanned despite
+			// being where most ML code — and most pasted API keys —
+			// actually live.
+			if strings.HasSuffix(strings.ToLower(info.Name()), ".ipynb") {
+				deps := parseJupyterNotebook(path)
+				bom.Dependencies = append(bom.Dependencies, deps...)
 			}
 
 			// Scan .env files for leaked secrets
@@ -314,6 +326,81 @@ func PerformScan(scanDir string) types.AIBOM {
 	return bom
 }
 
+// requirementSpecRe matches the leading `name[extras]` and the first
+// version constraint of a PEP 508 requirement string. Extras
+// (`transformers[torch]`) and environment markers (`; python_version <
+// "3.11"`) are tolerated because both are common in real manifests and
+// neither changes which package is being installed.
+var requirementSpecRe = regexp.MustCompile(`^([a-zA-Z0-9][a-zA-Z0-9._-]*)\s*(?:\[[^\]]*\])?\s*(?:([>=<~!]=?|===)\s*([a-zA-Z0-9_\-.*+!]+))?`)
+
+// parseRequirementSpec pulls the package name and pinned version out of a
+// single PEP 508 requirement string ("openai>=1.40.0",
+// "transformers[torch]==4.44.0", `langchain ; python_version > "3.9"`).
+// Returns ok=false for anything that isn't a plain named requirement —
+// pip flags (`-r base.txt`, `--index-url ...`), VCS/URL installs
+// (`git+https://…`), and local paths (`.`, `./pkg`) all fall out here
+// rather than being recorded as a package named `-r` or `git+https`.
+//
+// The returned name is lower-cased; version is "unknown" when the spec
+// carries no constraint we can pin (a bare name, or a range like `>=1.0`
+// where the resolved version lives in a lockfile we may not have).
+func parseRequirementSpec(spec string) (name, version string, ok bool) {
+	spec = strings.TrimSpace(spec)
+	// Strip an inline comment before parsing — "openai==1.2.0  # pinned".
+	if idx := strings.Index(spec, " #"); idx >= 0 {
+		spec = strings.TrimSpace(spec[:idx])
+	}
+	// Environment markers never affect identity; drop them.
+	if idx := strings.Index(spec, ";"); idx >= 0 {
+		spec = strings.TrimSpace(spec[:idx])
+	}
+	if spec == "" || strings.HasPrefix(spec, "-") || strings.HasPrefix(spec, ".") {
+		return "", "", false
+	}
+	// URL / VCS installs carry no reliable package name in the spec.
+	if strings.Contains(spec, "://") || strings.HasPrefix(spec, "git+") {
+		return "", "", false
+	}
+
+	m := requirementSpecRe.FindStringSubmatch(spec)
+	if len(m) < 2 || m[1] == "" {
+		return "", "", false
+	}
+	version = "unknown"
+	if len(m) > 3 && m[3] != "" {
+		// Note: for a range (`>=1.40.0`) this records the lower bound,
+		// not the version that will actually resolve at install time.
+		// That matches the pre-Wave-16 behaviour and keeps a version to
+		// hand to the OSV lookup; a lockfile, where one exists, is
+		// always the more authoritative source and is parsed separately.
+		version = m[3]
+	}
+	return strings.ToLower(m[1]), version, true
+}
+
+// isRequirementsFile reports whether a path is a pip requirements file.
+//
+// Matching only the exact name `requirements.txt` (as this scanner did
+// until Wave 16) misses the two layouts most real projects use: the
+// suffixed form (`requirements-dev.txt`, `requirements.prod.txt`) and the
+// directory form (`requirements/base.txt`). Both were scanned as generic
+// files and produced no findings at all, so a project could come back
+// "Passed" with its entire AI stack declared in `requirements/base.txt`.
+func isRequirementsFile(path string) bool {
+	base := strings.ToLower(filepath.Base(path))
+	if !strings.HasSuffix(base, ".txt") {
+		return false
+	}
+	if base == "requirements.txt" ||
+		strings.HasPrefix(base, "requirements-") ||
+		strings.HasPrefix(base, "requirements_") ||
+		strings.HasPrefix(base, "requirements.") {
+		return true
+	}
+	// requirements/base.txt, requirements/dev.txt, …
+	return strings.ToLower(filepath.Base(filepath.Dir(path))) == "requirements"
+}
+
 // loadPolicyConfig reads a .aicap.yml policy configuration file
 func parseRequirementsTxt(filePath string) []types.AIDependency {
 	var found []types.AIDependency
@@ -324,8 +411,6 @@ func parseRequirementsTxt(filePath string) []types.AIDependency {
 	defer file.Close()
 
 	scanner := bufio.NewScanner(file)
-	// Regex to match "library==version" or just "library"
-	re := regexp.MustCompile(`^([a-zA-Z0-9_\-]+)(?:[>=<~]+([a-zA-Z0-9_\-\.]+))?`)
 
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
@@ -333,24 +418,20 @@ func parseRequirementsTxt(filePath string) []types.AIDependency {
 			continue
 		}
 
-		matches := re.FindStringSubmatch(line)
-		if len(matches) > 1 {
-			pkgName := strings.ToLower(matches[1])
-			version := "unknown"
-			if len(matches) > 2 && matches[2] != "" {
-				version = matches[2]
-			}
+		pkgName, version, ok := parseRequirementSpec(line)
+		if !ok {
+			continue
+		}
 
-			if meta, exists := targetAILibraries[pkgName]; exists {
-				found = append(found, types.AIDependency{
-					Name:        pkgName,
-					Version:     version,
-					Ecosystem:   "Python (pip)",
-					RiskLevel:   meta.Risk,
-					Description: meta.Desc,
-					Location:    filePath,
-				})
-			}
+		if meta, exists := targetAILibraries[pkgName]; exists {
+			found = append(found, types.AIDependency{
+				Name:        pkgName,
+				Version:     version,
+				Ecosystem:   "Python (pip)",
+				RiskLevel:   meta.Risk,
+				Description: meta.Desc,
+				Location:    filePath,
+			})
 		}
 	}
 	return found
@@ -449,28 +530,40 @@ func isTargetModelLiteral(val string) bool {
 	return false
 }
 
-// parsePythonSource uses heuristic regex matching to find string literals AND import statements in Python files
-func parsePythonSource(filePath string) []types.AIDependency {
+// pythonScanContext parameterises the Python line scanner so the same
+// detection logic serves both `.py` files and `.ipynb` notebook code
+// cells, which differ only in how a finding's origin is described.
+type pythonScanContext struct {
+	importEcosystem  string
+	literalEcosystem string
+	sourceLabel      string // used in finding descriptions: "Python source code" / "notebook cell"
+	// locate renders the human-readable location for a 1-based line
+	// number within the scanned unit.
+	locate func(lineNum int) string
+}
+
+// pythonLiteralRe matches string literals inside single or double quotes.
+var pythonLiteralRe = regexp.MustCompile(`"([^"]*)"|'([^']*)'`)
+
+// pythonImportRe matches "import X" or "from X import Y" patterns.
+var pythonImportRe = regexp.MustCompile(`^\s*(?:import\s+([a-zA-Z0-9_]+)|from\s+([a-zA-Z0-9_]+)(?:\.[a-zA-Z0-9_.]+)?\s+import)`)
+
+// scanPythonLines runs import / hardcoded-model / exposed-secret
+// detection over a slice of Python source lines. Extracted from
+// parsePythonSource in Wave 16 so notebooks reuse it verbatim rather
+// than growing a second, drifting copy of the same heuristics.
+//
+// `detectedImports` is supplied by the caller so a notebook can
+// deduplicate an import across all of its cells (the same `import
+// torch` appearing in three cells is one dependency, not three).
+func scanPythonLines(lines []string, ctx pythonScanContext, detectedImports map[string]bool) []types.AIDependency {
 	var found []types.AIDependency
-	file, err := os.Open(filePath)
-	if err != nil {
-		return found
-	}
-	defer file.Close()
 
-	scanner := bufio.NewScanner(file)
-	// Regex to match string literals inside single or double quotes
-	strRegex := regexp.MustCompile(`"([^"]*)"|'([^']*)'`)
-	// Regex to match "import X" or "from X import Y" patterns
-	importRegex := regexp.MustCompile(`^\s*(?:import\s+([a-zA-Z0-9_]+)|from\s+([a-zA-Z0-9_]+)(?:\.[a-zA-Z0-9_.]+)?\s+import)`)
-
-	detectedImports := map[string]bool{} // deduplicate
-	lineNum := 1
-	for scanner.Scan() {
-		line := scanner.Text()
+	for i, line := range lines {
+		lineNum := i + 1
 
 		// Detect Python import statements for AI libraries
-		importMatches := importRegex.FindStringSubmatch(line)
+		importMatches := pythonImportRe.FindStringSubmatch(line)
 		if len(importMatches) > 0 {
 			modName := importMatches[1]
 			if modName == "" {
@@ -482,16 +575,16 @@ func parsePythonSource(filePath string) []types.AIDependency {
 				found = append(found, types.AIDependency{
 					Name:        modName,
 					Version:     "imported",
-					Ecosystem:   "Source Code (.py import)",
+					Ecosystem:   ctx.importEcosystem,
 					RiskLevel:   meta.Risk,
 					Description: meta.Desc + " (detected via import statement)",
-					Location:    fmt.Sprintf("%s:%d", filePath, lineNum),
+					Location:    ctx.locate(lineNum),
 				})
 			}
 		}
 
 		// Detect hardcoded model strings and secrets
-		matches := strRegex.FindAllStringSubmatch(line, -1)
+		matches := pythonLiteralRe.FindAllStringSubmatch(line, -1)
 		for _, match := range matches {
 			if len(match) > 2 {
 				val := match[1]
@@ -503,10 +596,10 @@ func parsePythonSource(filePath string) []types.AIDependency {
 					found = append(found, types.AIDependency{
 						Name:        "Hardcoded Model",
 						Version:     val,
-						Ecosystem:   "Source Code (.py)",
+						Ecosystem:   ctx.literalEcosystem,
 						RiskLevel:   "High",
-						Description: "Hardcoded AI model identifier found in Python source code",
-						Location:    fmt.Sprintf("%s:%d", filePath, lineNum),
+						Description: "Hardcoded AI model identifier found in " + ctx.sourceLabel,
+						Location:    ctx.locate(lineNum),
 					})
 				}
 
@@ -514,17 +607,40 @@ func parsePythonSource(filePath string) []types.AIDependency {
 					found = append(found, types.AIDependency{
 						Name:        "Exposed Secret",
 						Version:     "HIDDEN",
-						Ecosystem:   "Source Code (.py)",
+						Ecosystem:   ctx.literalEcosystem,
 						RiskLevel:   "High",
-						Description: "Potential hardcoded API key found in Python source code",
-						Location:    fmt.Sprintf("%s:%d", filePath, lineNum),
+						Description: "Potential hardcoded API key found in " + ctx.sourceLabel,
+						Location:    ctx.locate(lineNum),
 					})
 				}
 			}
 		}
-		lineNum++
 	}
 	return found
+}
+
+// parsePythonSource uses heuristic regex matching to find string literals AND import statements in Python files
+func parsePythonSource(filePath string) []types.AIDependency {
+	file, err := os.Open(filePath)
+	if err != nil {
+		return nil
+	}
+	defer file.Close()
+
+	var lines []string
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		lines = append(lines, scanner.Text())
+	}
+
+	return scanPythonLines(lines, pythonScanContext{
+		importEcosystem:  "Source Code (.py import)",
+		literalEcosystem: "Source Code (.py)",
+		sourceLabel:      "Python source code",
+		locate: func(lineNum int) string {
+			return fmt.Sprintf("%s:%d", filePath, lineNum)
+		},
+	}, map[string]bool{})
 }
 
 // parseKubernetesManifest checks IaC files for expensive GPU requests without optimization
@@ -691,7 +807,23 @@ func parseGoMod(filePath string) []types.AIDependency {
 	return found
 }
 
-// parsePyProjectToml extracts AI dependencies from Poetry pyproject.toml files
+// parsePyProjectToml extracts AI dependencies from pyproject.toml.
+//
+// Two distinct shapes live in this file and both must be handled:
+//
+//	[tool.poetry.dependencies]      key = value table (Poetry)
+//	openai = "^1.12.0"
+//
+//	[project]                       PEP 621 array-of-strings — the
+//	dependencies = [                standard form, and what uv, hatch,
+//	  "openai>=1.40.0",             flit, and modern setuptools emit
+//	]
+//
+// Until Wave 16 only the table form was parsed; a `[project]` array —
+// by now the more common of the two — produced zero findings, so a
+// project declaring its whole AI stack the standard way scanned clean.
+// `[project.optional-dependencies]` groups are covered too, since extras
+// are where GPU/ML stacks are usually declared.
 func parsePyProjectToml(filePath string) []types.AIDependency {
 	var found []types.AIDependency
 	data, err := os.ReadFile(filePath)
@@ -706,19 +838,81 @@ func parsePyProjectToml(filePath string) []types.AIDependency {
 	// Match lines like: openai = "^1.12.0" or torch = {version = ">=2.0"}
 	depLineRe := regexp.MustCompile(`^\s*([a-zA-Z0-9_-]+)\s*=\s*(.+)`)
 
+	// PEP 621 array state. `inDepArray` is set while we're inside the
+	// brackets of a dependency array so continuation lines are read as
+	// requirement strings rather than as TOML keys.
+	inDepArray := false
+	inOptionalDeps := false
+	arrayEntryRe := regexp.MustCompile(`["']([^"']+)["']`)
+
+	emitSpec := func(spec, ecosystem string) {
+		pkgName, version, ok := parseRequirementSpec(spec)
+		if !ok {
+			return
+		}
+		if meta, exists := targetAILibraries[pkgName]; exists {
+			found = append(found, types.AIDependency{
+				Name:        pkgName,
+				Version:     version,
+				Ecosystem:   ecosystem,
+				RiskLevel:   meta.Risk,
+				Description: meta.Desc,
+				Location:    filePath,
+			})
+		}
+	}
+
 	for _, line := range lines {
 		trimmed := strings.TrimSpace(line)
 
-		// Detect dependency sections
-		if trimmed == "[tool.poetry.dependencies]" || trimmed == "[project.dependencies]" {
+		// --- PEP 621 array handling (runs before section bookkeeping so
+		// a `]` terminator inside an array is never mistaken for a
+		// section header). ---
+		if inDepArray {
+			for _, m := range arrayEntryRe.FindAllStringSubmatch(trimmed, -1) {
+				emitSpec(m[1], "Python (PEP 621)")
+			}
+			if strings.Contains(trimmed, "]") {
+				inDepArray = false
+			}
+			continue
+		}
+
+		// Detect dependency sections. Poetry's grouped form
+		// (`[tool.poetry.group.dev.dependencies]`) is the same key =
+		// value table as the ungrouped one.
+		if trimmed == "[tool.poetry.dependencies]" || trimmed == "[project.dependencies]" ||
+			(strings.HasPrefix(trimmed, "[tool.poetry.group.") && strings.HasSuffix(trimmed, ".dependencies]")) {
 			inDepsSection = true
+			inOptionalDeps = false
 			continue
 		}
 
 		// Exit when we hit a new section
 		if strings.HasPrefix(trimmed, "[") {
 			inDepsSection = false
+			// `[project.optional-dependencies]` holds one array per
+			// extra (dev = [...], gpu = [...]), so every array inside
+			// it is a dependency array.
+			inOptionalDeps = trimmed == "[project.optional-dependencies]"
 			continue
+		}
+
+		// `dependencies = [...]` under [project], or any `name = [...]`
+		// under [project.optional-dependencies].
+		if strings.HasPrefix(trimmed, "dependencies") || inOptionalDeps {
+			if idx := strings.Index(trimmed, "["); idx >= 0 && strings.Contains(trimmed, "=") &&
+				strings.Index(trimmed, "=") < idx {
+				rest := trimmed[idx:]
+				for _, m := range arrayEntryRe.FindAllStringSubmatch(rest, -1) {
+					emitSpec(m[1], "Python (PEP 621)")
+				}
+				// Single-line arrays close on the same line.
+				if !strings.Contains(rest, "]") {
+					inDepArray = true
+				}
+				continue
+			}
 		}
 
 		if !inDepsSection {
