@@ -114,6 +114,45 @@ export function markdownToHtml(markdown) {
       continue;
     }
 
+    // Blockquotes: consecutive lines starting with '>'.
+    //
+    // Not a cosmetic omission. Every legally protective statement this
+    // product makes is a blockquote — the Article 5 "this is not a
+    // finding that you are committing a prohibited practice" disclaimer,
+    // the Article 50 framing that these are disclosure duties rather
+    // than prohibitions, and the § 5 warning that a locally generated
+    // document is unattested and cannot be independently verified.
+    // Without this branch those lines were HTML-escaped to "&gt;" and
+    // run together into one paragraph, so the disclaimers reached the
+    // reader as garbled prose in exactly the document where they matter
+    // most.
+    if (/^\s*>/.test(line)) {
+      flushPara();
+      closeListsTo(0);
+      const quoted = [];
+      while (i < lines.length && /^\s*>/.test(lines[i])) {
+        // Strip the marker and one optional following space. A bare '>'
+        // is a paragraph break inside the quote.
+        quoted.push(lines[i].replace(/^\s*>\s?/, ''));
+        i++;
+      }
+      const paras = [];
+      let buf = [];
+      for (const q of quoted) {
+        if (q.trim() === '') {
+          if (buf.length) paras.push(buf.join(' '));
+          buf = [];
+        } else {
+          buf.push(q);
+        }
+      }
+      if (buf.length) paras.push(buf.join(' '));
+      out.push(
+        `<blockquote>${paras.map(p => `<p>${renderInline(p)}</p>`).join('')}</blockquote>`,
+      );
+      continue;
+    }
+
     // Tables: consecutive lines starting with '|'.
     if (line.trimStart().startsWith('|')) {
       flushPara();
@@ -205,6 +244,13 @@ const PRINT_CSS = `
   pre { background: #f1f5f9; border: 0.5pt solid #e2e8f0; border-radius: 3pt;
         padding: 6pt 8pt; overflow-x: auto; page-break-inside: avoid; }
   pre code { background: none; border: none; padding: 0; }
+  /* Blockquotes carry the document's disclaimers — the Article 5
+     "not a finding of breach" warning, the unattested-provenance
+     notice. They must read as a callout, not as body text a reader
+     skims past. */
+  blockquote { margin: 8pt 0; padding: 6pt 10pt; border-left: 2.5pt solid #f59e0b;
+               background: #fffbeb; color: #78350f; }
+  blockquote p { margin: 3pt 0; }
   table { border-collapse: collapse; width: 100%; font-size: 8.5pt; margin: 8pt 0; page-break-inside: avoid; }
   th, td { border: 0.75pt solid #cbd5e1; padding: 4pt 6pt; text-align: left; vertical-align: top; }
   th { background: #eef2ff; color: #312e81; }

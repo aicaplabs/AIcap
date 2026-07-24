@@ -136,7 +136,7 @@ func GenerateAnnexIVMarkdownWithOptions(bom types.AIBOM, register types.RiskRegi
 				if dep.License != "" {
 					licenseText = fmt.Sprintf(" [License: %s]", dep.License)
 				}
-				sb.WriteString(fmt.Sprintf("- **%s** (v%s)%s: %s (Risk: %s)\n", dep.Name, dep.Version, licenseText, dep.Description, dep.RiskLevel))
+				sb.WriteString(fmt.Sprintf("- **%s** (%s)%s: %s (Risk: %s)\n", dep.Name, DisplayVersion(dep.Version), licenseText, dep.Description, dep.RiskLevel))
 			}
 		}
 		sb.WriteString("\n")
@@ -779,6 +779,26 @@ func cvssMethod(vector string) string {
 	default:
 		return "other"
 	}
+}
+
+// DisplayVersion formats a version for human-facing output.
+//
+// The "v" prefix is only correct for something that is actually a
+// version. The Version field carries other things: the model identifier
+// for a "Hardcoded Model" finding, a constraint like ">=2.0" from a
+// manifest, and scanner placeholders like "imported" or
+// "docker-install". Prefixing those produced "vgpt-5",
+// "vmodels/llama-3-8b.gguf", "v>=2.0" and "vdocker-install" in a
+// document handed to auditors — small, but the kind of sloppiness that
+// makes a reader wonder how carefully the rest was produced.
+func DisplayVersion(v string) string {
+	if v == "" {
+		return "unspecified"
+	}
+	if v[0] >= '0' && v[0] <= '9' {
+		return "v" + v
+	}
+	return v
 }
 
 // ClassifyComponentType maps AIcap dependency types to CycloneDX component types

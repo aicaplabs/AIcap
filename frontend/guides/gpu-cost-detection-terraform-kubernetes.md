@@ -88,7 +88,7 @@ It is the same scanner, the same job, zero extra flags:
 
 ```yaml
 - name: AI compliance + FinOps scan
-  uses: aicaplabs/AIcap@v1.7.0
+  uses: aicaplabs/AIcap@v1.7.1
   with:
     scan-directory: '.'
 ```

@@ -85,11 +85,50 @@ func ComputeRiskRegister(bom types.AIBOM) types.RiskRegister {
 		Findings:    []types.RiskFinding{},
 	}
 
+	// One finding per (component, version). The same package is routinely
+	// detected several times — a manifest and a lockfile, an import and a
+	// pinned requirement — and emitting a row per detection produced a
+	// register listing `openai v1.12.0` twice with identical content.
+	//
+	// Worse than the noise: OSV enrichment attaches advisories by
+	// component, so of two duplicate rows only one received them. A
+	// reader saw the same component and version listed twice, once with
+	// ten CVEs and once with none, and had no way to tell which to
+	// believe. Deduplicating here is what makes the enrichment
+	// unambiguous.
+	//
+	// Distinct versions stay distinct: scikit-learn 0.24.2 and 1.4.0 in
+	// different manifests are genuinely two things to assess.
+	seen := map[string]bool{}
+
+	// A placeholder version ("imported", "docker-install") means the
+	// scanner saw the dependency but could not determine which version.
+	// Such a row cannot be checked against OSV, so it renders with an
+	// empty advisory column — and sitting beside a concrete-version row
+	// for the same component that lists ten CVEs, it re-creates exactly
+	// the ambiguity the deduplication above removes. When any concrete
+	// version of a component is known, the placeholder adds nothing an
+	// assessor can act on and is dropped.
+	hasConcreteVersion := map[string]bool{}
 	for _, dep := range bom.Dependencies {
+		if isQueryableVersion(dep.Version) {
+			hasConcreteVersion[strings.ToLower(dep.Name)] = true
+		}
+	}
+
+	for _, dep := range bom.Dependencies {
+		if !isQueryableVersion(dep.Version) && hasConcreteVersion[strings.ToLower(dep.Name)] {
+			continue
+		}
 		entry, ok := catalog[strings.ToLower(dep.Name)]
 		if !ok {
 			continue
 		}
+		key := strings.ToLower(dep.Name) + "@" + dep.Version
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
 		// Catalog severity wins over the static dep.RiskLevel because
 		// the catalog reflects the latest assessed compliance risk,
 		// while dep.RiskLevel is a coarse heuristic from the scanner.
@@ -165,8 +204,8 @@ func RenderRiskRegisterMarkdown(reg types.RiskRegister) string {
 		sb.WriteString(f.Component)
 		sb.WriteString("`")
 		if f.Version != "" {
-			sb.WriteString(" v")
-			sb.WriteString(f.Version)
+			sb.WriteString(" ")
+			sb.WriteString(DisplayVersion(f.Version))
 		}
 		sb.WriteString(" | ")
 		sb.WriteString(f.Severity)
@@ -207,8 +246,8 @@ func RenderLiveAdvisoriesMarkdown(reg types.RiskRegister) string {
 		sb.WriteString("- **`")
 		sb.WriteString(f.Component)
 		if f.Version != "" {
-			sb.WriteString("` v")
-			sb.WriteString(f.Version)
+			sb.WriteString("` ")
+			sb.WriteString(DisplayVersion(f.Version))
 		} else {
 			sb.WriteString("`")
 		}

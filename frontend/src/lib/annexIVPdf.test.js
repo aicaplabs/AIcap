@@ -116,3 +116,41 @@ describe('buildPrintDocument', () => {
     expect(doc).not.toContain('Immutable ledger entry');
   });
 });
+
+// Blockquotes carry every legally protective statement the product
+// makes: the Article 5 "not a finding of breach" disclaimer, the
+// Article 50 framing that these are disclosure duties, and the § 5
+// unattested-provenance warning. Before this branch existed they were
+// HTML-escaped to "&gt;" and run together into a single paragraph, so a
+// generated PDF delivered those disclaimers as garbled prose in the one
+// document where they matter most.
+describe('markdownToHtml blockquotes', () => {
+  const NL = String.fromCharCode(10);
+
+  it('renders a multi-line blockquote as one quoted paragraph', () => {
+    const html = markdownToHtml(
+      ['> **Warning.**', '> Second line of the same thought.', '', 'After.'].join(NL),
+    );
+    expect(html).toContain('<blockquote>');
+    expect(html).toContain('<strong>Warning.</strong> Second line of the same thought.');
+    expect(html).not.toContain('&gt;');
+    expect(html).toContain('<p>After.</p>');
+  });
+
+  it('splits paragraphs inside a quote on a bare marker', () => {
+    const html = markdownToHtml(['> First para.', '>', '> Second para.'].join(NL));
+    expect((html.match(/<p>/g) || []).length).toBe(2);
+  });
+
+  it('does not swallow the content that follows', () => {
+    const html = markdownToHtml(['> quoted', '- list item'].join(NL));
+    expect(html).toContain('<blockquote>');
+    expect(html).toContain('<li>list item</li>');
+  });
+
+  it('still escapes HTML inside a quote', () => {
+    const html = markdownToHtml('> <script>alert(1)</script>');
+    expect(html).not.toContain('<script>');
+    expect(html).toContain('&lt;script&gt;');
+  });
+});

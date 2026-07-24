@@ -132,15 +132,15 @@ func TestOSVClient_Non200_SurfacesError(t *testing.T) {
 
 func TestMapEcosystem_KnownLabels(t *testing.T) {
 	cases := map[string]string{
-		"Python (pip)":                 "PyPI",
-		"Python (Poetry lock)":         "PyPI",
-		"Python (Pipfile lock)":        "PyPI",
+		"Python (pip)":                   "PyPI",
+		"Python (Poetry lock)":           "PyPI",
+		"Python (Pipfile lock)":          "PyPI",
 		"Python (Conda environment.yml)": "PyPI",
-		"Node.js (npm)":                "npm",
-		"Node.js (pnpm lock)":          "npm",
-		"Node.js (yarn lock)":          "npm",
-		"Go (go.mod)":                  "Go",
-		"Source Code (.py)":            "", // unknown — skipped
+		"Node.js (npm)":                  "npm",
+		"Node.js (pnpm lock)":            "npm",
+		"Node.js (yarn lock)":            "npm",
+		"Go (go.mod)":                    "Go",
+		"Source Code (.py)":              "", // unknown — skipped
 	}
 	for input, want := range cases {
 		if got := mapEcosystem(input); got != want {
