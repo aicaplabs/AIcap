@@ -125,26 +125,22 @@ func main() {
 
 		bomJSON, _ := json.MarshalIndent(bom, "", "  ")
 
-		if wantCycloneDX {
-			cdx := compliance.GenerateCycloneDXBOM(bom)
-			cdxJSON, _ := json.MarshalIndent(cdx, "", "  ")
-			fmt.Println(string(cdxJSON))
-		} else {
-			fmt.Println(string(bomJSON))
-		}
-
-		// Article 9 risk register + Annex IV draft (Wave 16).
+		// Article 9 risk register (Wave 16). Computed before any output
+		// is written because the CycloneDX serialisation needs it too:
+		// an SBOM that omits advisories AIcap already holds forces every
+		// downstream consumer to rediscover them.
 		//
-		// Both were previously computed only inside /api/save-proof, so a
-		// free CLI run emitted neither — while action.yml and the
-		// Marketplace listing promised "AI-BOM, risk register, and Annex
-		// IV documentation on every push". Both are pure functions that
-		// need no server, and the paid boundary is the hosted ledger,
-		// the shareable report, and history — none of which this gives
-		// away. § 5 of a locally generated document states plainly that
-		// it is unattested.
+		// The register and the Annex IV draft were previously computed
+		// only inside /api/save-proof, so a free CLI run emitted neither
+		// — while action.yml and the Marketplace listing promised
+		// "AI-BOM, risk register, and Annex IV documentation on every
+		// push". Both are pure functions that need no server, and the
+		// paid boundary is the hosted ledger, the shareable report, and
+		// history. § 5 of a locally generated document states plainly
+		// that it is unattested.
+		var register types.RiskRegister
 		if !opts.NoAnnexIV {
-			register := compliance.ComputeRiskRegister(bom)
+			register = compliance.ComputeRiskRegister(bom)
 
 			// OSV enrichment runs from the caller's own runner against a
 			// public API. Opt out with AICAP_OSV_DISABLED=true; the
@@ -154,7 +150,17 @@ func main() {
 				compliance.EnrichWithOSV(ctx, &register, bom, osvClient)
 				cancel()
 			}
+		}
 
+		if wantCycloneDX {
+			cdx := compliance.GenerateCycloneDXBOMWithRegister(bom, register)
+			cdxJSON, _ := json.MarshalIndent(cdx, "", "  ")
+			fmt.Println(string(cdxJSON))
+		} else {
+			fmt.Println(string(bomJSON))
+		}
+
+		if !opts.NoAnnexIV {
 			annexIV := compliance.GenerateAnnexIVMarkdownWithAttestation(
 				bom, register, types.Attestation{Anchored: false})
 

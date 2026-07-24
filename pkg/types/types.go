@@ -324,6 +324,54 @@ type CycloneDXBOM struct {
 	Version      int                  `json:"version"`
 	Metadata     CycloneDXMetadata    `json:"metadata"`
 	Components   []CycloneDXComponent `json:"components"`
+	// Vulnerabilities (Wave 19) is the CycloneDX 1.5 vulnerabilities
+	// array. AIcap already held live OSV advisories and emitted an SBOM
+	// without them, which meant Dependency-Track and every other
+	// consumer had to re-discover vulnerabilities AIcap had already
+	// found. Omitted entirely when the risk register carries none.
+	Vulnerabilities []CycloneDXVulnerability `json:"vulnerabilities,omitempty"`
+}
+
+// CycloneDXVulnerability is one advisory in the CycloneDX 1.5 shape.
+type CycloneDXVulnerability struct {
+	BOMRef string               `json:"bom-ref,omitempty"`
+	ID     string               `json:"id"`
+	Source *CycloneDXVulnSource `json:"source,omitempty"`
+	// Ratings carries the severity exactly as the advisory database
+	// published it. AIcap never computes a score from a CVSS vector —
+	// that would mean implementing the CVSS spec, and a compliance
+	// artefact asserting a severity it derived slightly wrong is worse
+	// than one quoting its source.
+	Ratings        []CycloneDXRating      `json:"ratings,omitempty"`
+	Description    string                 `json:"description,omitempty"`
+	Recommendation string                 `json:"recommendation,omitempty"`
+	Advisories     []CycloneDXAdvisoryRef `json:"advisories,omitempty"`
+	Affects        []CycloneDXAffects     `json:"affects,omitempty"`
+}
+
+type CycloneDXVulnSource struct {
+	Name string `json:"name,omitempty"`
+	URL  string `json:"url,omitempty"`
+}
+
+type CycloneDXAdvisoryRef struct {
+	URL string `json:"url"`
+}
+
+// CycloneDXRating carries a published severity. Score is deliberately
+// absent: the OSV `severity` field holds a CVSS *vector*, not a number,
+// and Vector is where that belongs.
+type CycloneDXRating struct {
+	Source   *CycloneDXVulnSource `json:"source,omitempty"`
+	Severity string               `json:"severity,omitempty"`
+	Method   string               `json:"method,omitempty"`
+	Vector   string               `json:"vector,omitempty"`
+}
+
+// CycloneDXAffects links an advisory to the component it affects, by
+// the component's bom-ref.
+type CycloneDXAffects struct {
+	Ref string `json:"ref"`
 }
 
 type CycloneDXMetadata struct {

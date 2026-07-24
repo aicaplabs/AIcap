@@ -82,6 +82,30 @@ From there your existing alerting applies: a new GHSA against
 sentence is the entire business case — AI components stop being a separate,
 unmonitored universe.
 
+## The advisories travel with the SBOM
+
+The export carries a CycloneDX 1.5 `vulnerabilities` array populated from
+the live OSV.dev lookup AIcap performs during the scan. Each entry links to
+the component it affects by `bom-ref`, quotes the severity exactly as the
+advisory database published it (with the CVSS vector, never a score AIcap
+computed itself), and names an upgrade target:
+
+```json
+{
+  "id": "GHSA-37mw-44qp-f5jm",
+  "source": { "name": "OSV", "url": "https://osv.dev/vulnerability/GHSA-37mw-44qp-f5jm" },
+  "ratings": [{ "severity": "moderate", "method": "CVSSv31", "vector": "CVSS:3.1/AV:N/..." }],
+  "recommendation": "Upgrade to 4.52.1 or later.",
+  "affects": [{ "ref": "pkg:pypi/transformers@4.30.0" }]
+}
+```
+
+So a consumer ingesting the file does not have to rediscover what the scan
+already found. Note what is *not* in that array: curated OWASP ML / MITRE
+ATLAS mappings stay in the risk register. Those are risk-management
+entries, not CVEs, and emitting them here would make your scanner report
+vulnerabilities that do not exist.
+
 ## Where the standard still falls short
 
 Honesty section. CycloneDX's ML support is young:
@@ -93,7 +117,11 @@ Honesty section. CycloneDX's ML support is young:
   against — they appear as components with evidence, and policy on them is
   yours to write.
 - Model cards in the wild are sparse; the spec supports more metadata than
-  most sources provide.
+  most sources provide. AIcap deliberately does not emit a `modelCard`
+  block for detected models: we know the identifier, the licence, and
+  where it was referenced, and inventing the fields we do not know
+  (training data, evaluation, intended use) would put fabricated
+  metadata into an audit artefact.
 
 These gaps are why the AI-BOM itself (with its OWASP ML / MITRE ATLAS risk
 register) remains the richer artefact — the CycloneDX export is the

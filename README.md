@@ -51,7 +51,7 @@
 - **EU AI Act Annex IV** — Auto-generates technical documentation with risk register, licensing summary, and policy compliance
 - **OWASP ML Top 10** — Cross-references dependencies with known ML attack vectors (supply chain, prompt injection, model theft, data poisoning)
 - **Policy-as-Code** — `.aicap.yml` configuration for model governance (blocked/allowed models, risk thresholds, license restrictions)
-- **CycloneDX 1.5** — Industry-standard SBOM output with Package URLs (PURLs) for enterprise toolchain integration
+- **CycloneDX 1.5** — Industry-standard SBOM output with Package URLs (PURLs) and a populated `vulnerabilities` array (live OSV advisories, linked to components by `bom-ref`, with upgrade targets) so Dependency-Track and friends ingest what the scan already found
 
 ### 💸 AI FinOps
 - **Kubernetes** — Detects unoptimized GPU requests (missing MIG/time-slicing)
