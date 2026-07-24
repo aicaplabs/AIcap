@@ -9,25 +9,110 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 Trial of new features lands on `development` first. Once a stable
 batch is ready, it is merged to `main` and tagged.
 
+## [1.5.0] — 2026-07-24 — Detection coverage, live advisories, signed ledger, drift
+
+The through-line of this release: a compliance tool's failure modes are
+asymmetric. A missed component produces a document that is confidently
+wrong, and a claim the product cannot back produces a document an
+auditor should not accept. Both were present. Both are closed.
+
 ### Fixed
-- **Trial "Subscribe to Pro" now reaches checkout.** The trial-banner
-  CTA was an `<a href="#pricing">` anchor, but `#pricing` only exists on
-  the public landing page — on the authenticated dashboard it scrolled
-  nowhere, so trial users had no way to convert. Extracted the Paywall's
-  checkout logic into a shared `useCheckout` hook; the banner button and
-  the Paywall now use the same tested path to Stripe. The banner is also
-  hidden once `tier === 'pro'`, so a user who subscribes mid-trial no
-  longer sees a "Subscribe" prompt.
-- **Reverse trial now actually starts on signup.** The 14-day trial's
-  clock (`trial_ends_at`) is set by the `generate-key` INSERT, but the
-  frontend only called `generate-key` on the Stripe checkout return —
-  so a brand-new user was shown the paywall and could only enter the
-  product by paying, defeating the reverse-trial design and
-  contradicting the "Start your Pro trial" CTA. `fetchAndSetUserSession`
-  now materialises the key (and thus starts the trial) for any keyless
-  user on first sign-in, then re-reads `/api/me` so the router shows the
-  trial dashboard instead of the paywall. Frontend-only; the backend
-  already granted trial users Pro-equivalent access.
+
+- **The scanner could report a clean "Passed" on a project full of
+  undeclared AI.** Found by scanning synthetic modern-stack projects
+  rather than reading the catalogs. Three independent causes, each
+  enough on its own: PEP 621 `dependencies = [...]` arrays under
+  `[project]` were not parsed (only the Poetry table form was, while
+  the array form is the standard and what uv/hatch/flit/setuptools
+  emit); the requirements-file family was matched by exact name, so
+  `requirements-dev.txt` and `requirements/base.txt` were invisible;
+  and `.ipynb` notebooks were not scanned at all, despite being where
+  most ML code and a good share of pasted API keys live. A probe
+  project declaring its stack in all three places produced zero
+  findings and status "Passed" — a verdict that then gets hash-chained
+  into the audit ledger as an attestation. It now produces five.
+- **Remediation advice named git commit SHAs as upgrade targets.**
+  Found by running against live OSV data rather than fixtures: OSV
+  records a `fixed` event per affected range, and projects publishing
+  source-range advisories put a commit hash there. `vllm` 0.6.0 (62
+  advisories) produced a mitigation listing roughly twenty "versions",
+  six of them 40-character SHAs. Non-version values are now filtered
+  and a single upgrade target is named — the highest fixed version,
+  which clears every affected branch. Version comparison is numeric, so
+  0.24.0 correctly beats 0.9.0.
+- **Pricing copy contradicted the product in both directions.** The
+  Free column advertised Annex IV generation the CLI did not perform;
+  the Pro column advertised OSV enrichment and GPU cost estimates that
+  in fact run locally at no charge. One overpromises to a buyer, the
+  other hides value from them.
+
+### Added
+
+- **Model families.** Hardcoded-model detection matched a flat list of
+  literal names last extended in the gpt-4o / claude-3.5 / o1-preview
+  generation, so every model shipped since was invisible. 18 compiled
+  regex families (OpenAI GPT and o-series, Claude, Gemini, Gemma,
+  Llama, Mistral/Mixtral, DeepSeek, Qwen, Grok, Command, Phi,
+  Nova/Titan, Jamba, DBRX, Yi, image models) match case-insensitively
+  anywhere in a literal, so vendor prefixes and date suffixes work.
+  Proprietary families supply a licence; open-weight families
+  deliberately do not, because the licence varies per checkpoint and a
+  visible gap beats a guess.
+- **AI library catalog: 31 → 130 entries.** The largest hole was npm —
+  three JS lockfile parsers existed but not one scoped AI package was
+  catalogued, so JS/TS projects scanned clean. `boto3` was deliberately
+  excluded: a generic cloud SDK in every BOM is noise, and noise
+  discredits a report as fast as a gap does.
+- **`AICAP_CATALOG_URL`** — detection catalogs refreshable without a
+  binary release, mirroring the existing GPU-pricing contract. Embedded
+  catalogs survive any failure, so detection never degrades below what
+  shipped.
+- **The free CLI now emits the Article 9 risk register and the Annex IV
+  draft** (`--annex-iv <path>`, `--no-annex-iv` to skip), with OSV
+  enrichment running in the caller's own pipeline. Both are pure
+  functions in an MIT-licensed package, so gating them protected
+  nothing while withholding the artefact that demonstrates the product.
+  A locally generated document states plainly in its § 5 that it is
+  unattested, cannot be independently verified, and can be regenerated
+  or back-dated by anyone with access to the machine.
+- **Ed25519 signatures on every ledger entry.** The hash chain proved
+  the rows were consistent with each other, not who wrote them — anyone
+  with database write access could rewrite a payload, recompute every
+  hash, and verify clean. The signing key lives in the process
+  environment and never in the database. `GET /api/ledger/public-key`
+  publishes the verifying key unauthenticated, and shared reports carry
+  the signature plus the exact signed bytes, so a recipient can verify
+  offline against the party who sent them the link. `/api/verify-chain`
+  reports signed and unsigned counts rather than a bare `ok`.
+- **Scan-to-scan drift** (`GET /api/drift`, dashboard card). The ledger
+  had stored consecutive proof drills since Wave 4 without ever
+  comparing two of them. The signal it exists for is an advisory
+  appearing against a component nobody touched — the case a
+  point-in-time audit structurally cannot surface, and the evidence EU
+  AI Act Article 72 post-market monitoring asks for.
+- **OSV lookups decoupled from the static risk catalog.** A dependency
+  was only queried if its name already appeared in the ten-entry
+  `vulns.json`, so the register could never report a vulnerability that
+  catalog had not anticipated. Every dependency with a mappable
+  ecosystem and a concrete version is now checked, and one with a live
+  advisory but no catalog entry gets a finding of its own. The full
+  advisory is kept — summary, severity as published, CVSS vector, and
+  the fixed version. Severity is quoted, never recomputed.
+- **Documentation split.** `documentation/internal/` is gitignored as a
+  whole directory, so a private note is private by default rather than
+  by remembering to write an ignore rule. The data-residency statement
+  became a published page with a URL that can be pasted into a security
+  questionnaire.
+
+### Changed
+
+- Placeholder versions (`imported`, `local`, `docker-install`) are no
+  longer sent to OSV. `/v1/query` without a parseable version returns
+  every advisory ever filed against a package, including ones fixed
+  long before the version in use; attributing those would be a
+  fabricated finding.
+- OSV results are sorted before being applied, so identical inputs
+  produce a byte-stable register and Annex IV.
 
 ## [1.4.0] — 2026-07-22 — Organization move + domain consolidation
 
