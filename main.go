@@ -58,6 +58,7 @@ func main() {
 	if len(os.Args) > 1 && os.Args[1] == "--cli" {
 		scanDir, imageRefs, tarballPaths, wantCycloneDX := parseCLIArgs(os.Args[2:])
 		fmt.Printf("Running AIcap in CI/CD CLI mode on directory: %s\n", scanDir)
+		loadRemoteCatalogs()
 		bom := scanner.PerformScan(scanDir)
 
 		// Wave 10 — daemonless container-image scanning. Either
@@ -211,6 +212,8 @@ func main() {
 		}
 	}
 
+	loadRemoteCatalogs()
+
 	mux := http.NewServeMux()
 	api.RegisterRoutes(mux, db, isCloudSaaS)
 
@@ -266,6 +269,35 @@ func main() {
 	if db != nil {
 		_ = db.Close()
 	}
+}
+
+// loadRemoteCatalogs applies an optional remote refresh of the detection
+// catalogs (AI libraries, model literals, model families, model
+// licences) named by AICAP_CATALOG_URL.
+//
+// Detection quality is a function of catalog freshness, and tying that to
+// release cadence is how a scanner ends up reporting that a codebase
+// using this quarter's models contains no AI components. This is the
+// same contract pkg/finops uses for GPU pricing: fetch once at startup,
+// keep the embedded catalogs on any failure.
+//
+// Diagnostics go to slog (stderr) rather than stdout — CLI stdout is
+// parsed as JSON by the GitHub Action and must stay clean.
+func loadRemoteCatalogs() {
+	url := os.Getenv("AICAP_CATALOG_URL")
+	if url == "" {
+		return
+	}
+	applied, err := scanner.LoadCatalogsFromURL(url)
+	if err != nil {
+		slog.Warn("remote detection catalog unavailable, using embedded catalogs",
+			slog.String("url", url),
+			slog.Any("error", err))
+		return
+	}
+	slog.Info("loaded remote detection catalogs",
+		slog.String("url", url),
+		slog.Any("catalogs", applied))
 }
 
 // complianceExitCode maps the post-scan BOM state to a CI exit code.

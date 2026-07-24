@@ -39,8 +39,9 @@
 ### 🔍 AI Supply Chain Scanner
 | What it scans | How |
 |---|---|
-| **Python** (`requirements.txt`, `pyproject.toml`, source imports) | Detects AI libraries + hardcoded model IDs |
-| **Node.js** (`package.json`) | Matches against 70+ known AI/ML packages |
+| **Python** (`requirements*.txt`, `pyproject.toml` incl. PEP 621, lockfiles, source imports) | Detects AI libraries + hardcoded model IDs |
+| **Jupyter** (`.ipynb`) | Scans code cells for imports, model IDs, secrets, and `%pip install` magics |
+| **Node.js** (`package.json`, pnpm/yarn lockfiles) | Matches against 130+ known AI/ML packages, including scoped ones (`@anthropic-ai/sdk`, Vercel AI SDK, `@langchain/*`) |
 | **Go** (`go.mod`, AST analysis) | Parses module dependencies + string literals |
 | **Docker** (`Dockerfile`, `Dockerfile.*`) | Detects AI base images, model weight COPY, pip installs |
 | **Model weights** (`.safetensors`, `.onnx`, `.pt`, `.h5`, `.gguf`, etc.) | Flags local model files with license enrichment |
@@ -167,6 +168,9 @@ allowed_licenses:
 | Variable | Description |
 |---|---|
 | `AICAP_API_KEY` | Pro API key for cloud sync |
+| `AICAP_CATALOG_URL` | Remote detection-catalog bundle (AI libraries, model literals, model families, licences). Refreshes detection without upgrading the binary; falls back to the embedded catalogs on any failure |
+| `AICAP_GPU_COSTS_URL` | Remote GPU pricing catalog; falls back to the embedded one |
+| `AICAP_OSV_DISABLED` | Set to `true` to skip live CVE/GHSA enrichment from OSV.dev |
 | `GITHUB_REPOSITORY` | Auto-detected in GitHub Actions |
 | `GITHUB_SHA` | Auto-detected commit SHA |
 | `SUPABASE_DB_URL` | PostgreSQL connection for SaaS mode |
@@ -205,12 +209,13 @@ AIcap uses multi-layered parsing written in optimized Go:
 
 | File | Parser | Detection |
 |---|---|---|
-| `requirements.txt` | Regex | AI libraries by name |
+| `requirements*.txt` | Regex | AI libraries by name (incl. `requirements-dev.txt`, `requirements/base.txt`) |
 | `package.json` | JSON | Dependencies + devDependencies |
 | `go.mod` | Line parser | AI Go modules in require blocks |
-| `pyproject.toml` | Section parser | Poetry/PEP dependencies |
+| `pyproject.toml` | Section + array parser | Poetry tables and PEP 621 `dependencies` / optional extras |
 | `Dockerfile` | Line parser | Base images, COPY weights, pip install |
 | `*.py` | Regex + import | `import torch`, hardcoded model strings, secrets |
+| `*.ipynb` | JSON + cell scan | Notebook code cells: imports, model strings, secrets, `!pip install` |
 | `*.go` | Go AST | String literal analysis for models & secrets |
 | `.env` | Key-value parser | 13+ AI platform API key patterns |
 | `*.yaml` / `*.yml` | Line parser | Kubernetes GPU requests, MIG detection |
