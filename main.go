@@ -165,8 +165,11 @@ func main() {
 		}
 
 		if !opts.NoAnnexIV {
-			annexIV := compliance.GenerateAnnexIVMarkdownWithAttestation(
-				bom, register, types.Attestation{Anchored: false})
+			annexIV := compliance.GenerateAnnexIVMarkdownWithOptions(bom, register,
+				compliance.AnnexIVOptions{
+					Attestation:          types.Attestation{Anchored: false},
+					IncludeCostEstimates: opts.IncludeCosts,
+				})
 
 			fmt.Printf("\n[+] Article 9 risk register: %d finding(s) — High: %d, Medium: %d, Low: %d\n",
 				register.Summary.Total, register.Summary.High,
@@ -525,6 +528,12 @@ type cliOptions struct {
 	// that only want the BOM and don't want the OSV lookups that
 	// enrichment performs.
 	NoAnnexIV bool
+	// IncludeCosts adds GPU cost estimates and rightsizing suggestions to
+	// the Annex IV draft. Off by default: the compute description belongs
+	// in a compliance document, the price tag does not, and a list-price
+	// figure beside the risk register invites a reader to discount both.
+	// The JSON output carries the cost data either way.
+	IncludeCosts bool
 }
 
 // directory (defaults to "."). Recognised flags:
@@ -535,6 +544,7 @@ type cliOptions struct {
 //	--spdx             Emit an SPDX 2.3 SBOM instead of AICAP JSON.
 //	--annex-iv <path>  Write the Annex IV markdown draft to <path>.
 //	--no-annex-iv      Skip Annex IV generation (and its OSV lookups).
+//	--finops           Include GPU cost estimates in the Annex IV draft.
 //
 // Unknown flags are ignored to preserve forward compatibility with
 // the GitHub Action wrapper: a new action.yml release can pass new
@@ -566,6 +576,8 @@ func parseCLIArgs(args []string) cliOptions {
 			}
 		case "--no-annex-iv":
 			opts.NoAnnexIV = true
+		case "--finops":
+			opts.IncludeCosts = true
 		default:
 			if strings.HasPrefix(arg, "--") {
 				// Unknown flag — skip it AND its value if the

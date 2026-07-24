@@ -827,7 +827,11 @@ func TestComplianceGenerateAnnexIVMarkdown_ContainsAllSections(t *testing.T) {
 		"General System Description",
 		"System Architecture",
 		"Licensing Compliance Summary",
-		"Hardware Requirements",
+		// Wave 23 renamed § 2(c) from "Hardware Requirements & Estimated
+		// Monthly Cost (FinOps Telemetry)" — the compute description is
+		// an Annex IV requirement, the cost estimate is not, and the two
+		// no longer share a heading.
+		"Compute & Hardware Resources",
 		"Risk Management",
 		// Wave 6 renamed this section from "Automated Risk Register"
 		// to "Cross-Referenced Risk Register" — the new heading
@@ -848,12 +852,13 @@ func TestComplianceGenerateAnnexIVMarkdown_ContainsAllSections(t *testing.T) {
 	}
 }
 
-// Wave 7b: when a FinOps finding carries an EstimatedCost, Annex IV
-// § 2(c) must render the dollar figure inline AND a BOM-level summary
-// line. When no findings carry a cost, the legacy listing format
-// renders without the cost line — auditors see the GPU warning but
-// no fictional dollar figure.
-func TestAnnexIV_FinOpsCost_Rendered(t *testing.T) {
+// Wave 23 changed this contract. Cost figures are no longer in the
+// compliance document by default: the hardware description is an Annex
+// IV Section 2 requirement, but what the hardware *costs* is a FinOps
+// insight, and a list-price estimate sitting beside the Article 9 risk
+// register invites a reader to ask what else in the document is a
+// guess. Costs render only when the caller opts in.
+func TestAnnexIV_FinOpsCost_RenderedWhenRequested(t *testing.T) {
 	bom := types.AIBOM{
 		ProjectName: "x",
 		FinOps: []types.FinOpsFinding{{
@@ -880,7 +885,11 @@ func TestAnnexIV_FinOpsCost_Rendered(t *testing.T) {
 			UncostedFindings:     0,
 		},
 	}
-	md := compliance.GenerateAnnexIVMarkdown(bom)
+	md := compliance.GenerateAnnexIVMarkdownWithOptions(bom, compliance.ComputeRiskRegister(bom),
+		compliance.AnnexIVOptions{
+			Attestation:          types.Attestation{Anchored: true},
+			IncludeCostEstimates: true,
+		})
 
 	for _, want := range []string{
 		"Estimated cost:",
@@ -893,6 +902,24 @@ func TestAnnexIV_FinOpsCost_Rendered(t *testing.T) {
 	} {
 		if !strings.Contains(md, want) {
 			t.Errorf("§ 2(c) cost rendering missing %q\nfull md:\n%s", want, md)
+		}
+	}
+
+	// And by default the same BOM must render the compute description
+	// with no monetary figure anywhere in the document.
+	plain := compliance.GenerateAnnexIVMarkdown(bom)
+	for _, unwanted := range []string{
+		"Estimated cost:", "$23922", "Estimated total monthly cost:", "Rightsizing recommendations",
+	} {
+		if strings.Contains(plain, unwanted) {
+			t.Errorf("default Annex IV leaked a cost figure (%q) into the compliance document", unwanted)
+		}
+	}
+	// The hardware itself must still be described — that part IS an
+	// Annex IV Section 2 requirement.
+	for _, want := range []string{"Compute & Hardware Resources", "infra.tf", "Instance family:", "p4d."} {
+		if !strings.Contains(plain, want) {
+			t.Errorf("default Annex IV dropped the compute description: missing %q", want)
 		}
 	}
 }

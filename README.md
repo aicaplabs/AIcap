@@ -6,7 +6,7 @@
 [![CycloneDX](https://img.shields.io/badge/SBOM-CycloneDX%201.5-orange.svg)]()
 [![OWASP ML](https://img.shields.io/badge/OWASP-ML%20Top%2010-red.svg)]()
 
-**AIcap** is the developer-first compliance and FinOps scanner for the AI supply chain. It shifts EU AI Act compliance left into CI/CD, detects expensive GPU misconfigurations, and generates audit-ready documentation — all in a single binary.
+**AIcap** is the developer-first EU AI Act compliance scanner for the AI supply chain. It shifts compliance left into CI/CD: inventory every AI component, cross-reference it against live vulnerability data, and generate audit-ready Annex IV documentation — all from a single binary in your own pipeline.
 
 > **Why AIcap?** Every AI system shipped to the EU market must comply with the AI Act by August 2026. AIcap automates the hardest parts: dependency tracking, model governance, license auditing, and Annex IV documentation — so your team ships faster, not slower.
 
@@ -56,10 +56,20 @@
 - **SPDX 2.3** — Linux Foundation / ISO 5962 SBOM output, the format named in US federal procurement guidance and many enterprise questionnaires. Vendor licence strings become `LicenseRef` entries rather than invalid expressions; advisories attach as SECURITY external references
 - **CycloneDX 1.5** — Industry-standard SBOM output with Package URLs (PURLs) and a populated `vulnerabilities` array (live OSV advisories, linked to components by `bom-ref`, with upgrade targets) so Dependency-Track and friends ingest what the scan already found
 
-### 💸 AI FinOps
-- **Kubernetes** — Detects unoptimized GPU requests (missing MIG/time-slicing)
-- **Terraform** — Identifies GPU instances across AWS/Azure/GCP with hourly cost data and spot pricing analysis
-- **Helm** — Analyzes `values.yaml` for GPU allocation without autoscaling, detects model serving frameworks
+### 🖥️ Compute & Hardware Telemetry
+Annex IV Section 2 requires a description of the computational resources a
+system uses, so the scanner reads it out of your infrastructure code:
+
+- **Kubernetes** — GPU resource requests, and whether MIG or time-slicing is configured
+- **Terraform** — GPU instance families across AWS/Azure/GCP
+- **Helm** — GPU allocation in `values.yaml`, autoscaling, model-serving frameworks
+
+**Cost estimates are opt-in** (`--finops`). The hardware description belongs in
+a compliance document; what the hardware costs per month does not. Those figures
+are list-price, on-demand, USD, 730-hours-a-month — useful for budget planning,
+but an easily challenged number sitting next to your risk register invites a
+reader to discount both. They stay in the JSON output and the dashboard, and
+enter the Annex IV draft only when you ask.
 
 ### 🔒 Immutable Audit Ledger (Pro)
 - SHA-256 hash chain over every scan (commit + BOM + documentation), so editing,
@@ -214,6 +224,7 @@ allowed_licenses:
 | `--spdx` | Output SPDX 2.3 JSON instead of AIcap format |
 | `--annex-iv <path>` | Write the Annex IV technical documentation draft to `<path>` |
 | `--no-annex-iv` | Skip Annex IV generation (and the OSV lookups it performs) |
+| `--finops` | Include GPU cost estimates and rightsizing in the Annex IV draft (off by default) |
 | `--image <ref>` | Scan a container image from a registry. Repeatable |
 | `--image-tar <path>` | Scan a local `docker save` tarball. Repeatable |
 
@@ -252,7 +263,7 @@ AIcap uses multi-layered parsing written in optimized Go:
 ├──────────────┴──────────────┴───────────────────────┤
 │              AI-BOM + FinOps Findings                │
 ├─────────────────────────────────────────────────────┤
-│  OWASP ML Top 10 Enrichment                         │
+│  OWASP ML Top 10 + live OSV advisories              │
 ├─────────────────────────────────────────────────────┤
 │  Policy-as-Code Evaluation (.aicap.yml)             │
 ├─────────────────────────────────────────────────────┤
