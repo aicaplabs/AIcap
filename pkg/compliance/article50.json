@@ -1,0 +1,52 @@
+{
+  "_meta": {
+    "description": "EU AI Act Article 50 transparency obligations, keyed by the components whose presence indicates the obligation may apply. Grouped by obligation rather than by component, so a project with eight LLM libraries gets one duty to read, not eight.",
+    "applies_from": "2 August 2026 — the same date as the high-risk obligations.",
+    "what_this_is_not": "Not a determination that an obligation is unmet. Article 50 duties attach to systems that interact with natural persons, or that generate content shown to them. A static scan sees the capability, not the audience. Each obligation therefore carries the question that resolves it.",
+    "evidence_model": "Where a duty can be discharged by a technical control that leaves a trace in the dependency graph — content watermarking, C2PA provenance — the catalog names those markers so the report can show evidence rather than only a gap. Absence of a marker is not proof the duty is unmet: disclosure is often a UI string or an editorial process, neither of which appears in a manifest."
+  },
+  "obligations": [
+    {
+      "id": "50-1-interaction",
+      "article": "Article 50(1)",
+      "obligation": "Disclose that the user is interacting with an AI system",
+      "requirement": "Providers shall ensure that AI systems intended to interact directly with natural persons are designed and developed so that those persons are informed they are interacting with an AI system — unless that is obvious to a reasonably well-informed, observant and circumspect person given the context.",
+      "applies_when": "The system interacts directly with natural persons. A back-office classifier, a batch pipeline, or an internal developer tool is not caught. The duty falls on the provider, and must be discharged at the latest at the first interaction.",
+      "question": "Does this system talk to people? If so, where is the notice that they are dealing with an AI, and is it presented before or at the first interaction?",
+      "discharged_by": "A clear notice in the interface at first contact. This is typically UI copy or a system prompt, so it usually leaves no trace in a dependency manifest — its absence here is not evidence the duty is unmet.",
+      "triggers": ["openai", "anthropic", "cohere", "mistralai", "groq", "google-generativeai", "google-genai", "litellm", "langchain", "langgraph", "llama-index", "llamaindex", "haystack-ai", "crewai", "autogen", "smolagents", "openai-agents", "pydantic-ai", "semantic-kernel", "@anthropic-ai/sdk", "@ai-sdk/openai", "@ai-sdk/anthropic", "ai", "@langchain/core", "gradio", "chainlit", "streamlit", "rasa", "ollama", "vllm"]
+    },
+    {
+      "id": "50-2-synthetic-marking",
+      "article": "Article 50(2)",
+      "obligation": "Mark synthetic output as machine-readable and detectable",
+      "requirement": "Providers of AI systems — including general-purpose AI systems — generating synthetic audio, image, video or text content shall ensure the outputs are marked in a machine-readable format and detectable as artificially generated or manipulated. Solutions must be effective, interoperable, robust and reliable as far as technically feasible.",
+      "applies_when": "The system generates synthetic content. There is an exception where the AI performs an assistive function for standard editing or does not substantially alter the input data. Note this is a machine-readable marking duty — a visible 'made with AI' label alone does not satisfy it.",
+      "question": "Does this system emit generated audio, image, video or text to anyone outside the team? If so, what machine-readable marking is applied — watermark, C2PA manifest, or provenance metadata?",
+      "discharged_by": "Content watermarking or C2PA/content-credential provenance applied to generated output.",
+      "triggers": ["diffusers", "stable-diffusion", "controlnet-aux", "comfyui", "invokeai", "tts", "coqui-tts", "bark", "elevenlabs", "audiocraft", "musicgen", "so-vits-svc", "rvc", "openai", "anthropic", "google-generativeai", "litellm"],
+      "discharge_evidence": ["invisible-watermark", "imwatermark", "blind-watermark", "c2pa", "c2pa-python", "audioseal", "stegano", "truepic"]
+    },
+    {
+      "id": "50-3-emotion-biometric-notice",
+      "article": "Article 50(3)",
+      "obligation": "Inform people exposed to emotion recognition or biometric categorisation",
+      "requirement": "Deployers of an emotion recognition system or a biometric categorisation system shall inform the natural persons exposed thereto of the operation of the system, and shall process personal data in accordance with Regulation (EU) 2016/679 and other applicable data-protection law.",
+      "applies_when": "Whenever such a system is operated on people — including in settings where Article 5 does NOT prohibit it. This duty is the floor that remains after the Article 5 analysis: an emotion recognition system used outside a workplace or education institution is not prohibited, but the people exposed to it must still be told.",
+      "question": "Who is exposed to this system, and how are they informed that emotion inference or biometric categorisation is being performed on them? Is there a GDPR Article 9 lawful basis for the biometric data?",
+      "discharged_by": "Notice to the exposed persons at or before exposure, plus a documented GDPR basis. Usually a UI/consent flow or a posted notice, so it rarely appears in a manifest.",
+      "triggers": ["fer", "deepface", "py-feat", "hsemotion", "hsemotion-onnx", "opensmile", "pyaudioanalysis", "speechbrain", "fairface", "insightface", "face-recognition", "face_recognition"]
+    },
+    {
+      "id": "50-4-deepfake-disclosure",
+      "article": "Article 50(4)",
+      "obligation": "Disclose deep-fake and AI-generated public-interest content",
+      "requirement": "Deployers of an AI system that generates or manipulates image, audio or video content constituting a deep fake shall disclose that the content has been artificially generated or manipulated. Where the content forms part of an evidently artistic, creative, satirical or fictional work, the duty is limited to disclosing in a way that does not hamper display or enjoyment. Deployers generating or manipulating text published to inform the public on matters of public interest shall likewise disclose, unless the content underwent human review and a person holds editorial responsibility.",
+      "applies_when": "The output depicts real persons, objects, places or events in a way that would falsely appear authentic, or is text published to inform the public on matters of public interest. The duty is on the deployer, not only the provider.",
+      "question": "Does this system produce content depicting real people or events, or text published as public-interest information? If so, how is the disclosure presented to the audience?",
+      "discharged_by": "Audience-facing disclosure. For provenance-bearing formats, a C2PA manifest travels with the file and both discloses and survives redistribution.",
+      "triggers": ["roop", "deepfacelab", "faceswap", "sadtalker", "wav2lip", "first-order-model", "so-vits-svc", "rvc", "bark", "coqui-tts", "tts", "elevenlabs", "insightface", "diffusers"],
+      "discharge_evidence": ["c2pa", "c2pa-python", "invisible-watermark", "imwatermark", "audioseal", "truepic"]
+    }
+  ]
+}

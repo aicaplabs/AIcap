@@ -398,6 +398,12 @@ func PerformScan(scanDir string) types.AIBOM {
 	// context a static scan cannot observe.
 	bom.ProhibitedPractices = compliance.DetectProhibitedPractices(bom)
 
+	// Phase: EU AI Act Article 50 transparency duties (Wave 21). Applies
+	// from 2 Aug 2026, same date as the high-risk regime. Unlike Article
+	// 5 these forbid nothing — they require disclosure — so the output is
+	// a duty list with the evidence found for each, not a verdict.
+	bom.TransparencyObligations = compliance.DetectTransparencyObligations(bom)
+
 	// Phase: Policy-as-Code Evaluation
 	// Load .aicap.yml policy if it exists in the scanned directory
 	policy := compliance.LoadPolicyConfig(scanDir)

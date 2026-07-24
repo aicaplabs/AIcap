@@ -49,6 +49,7 @@
 
 ### ⚖️ Compliance Automation
 - **EU AI Act Annex IV** — Auto-generates technical documentation with risk register, licensing summary, and policy compliance
+- **Article 50 transparency duties** — Flags the four disclosure obligations that bite on 2 Aug 2026 (tell users they're talking to an AI; mark synthetic output machine-readably; inform people subject to emotion/biometric analysis; disclose deep fakes), with evidence of any watermarking or C2PA provenance found in the dependency graph
 - **Article 5 prohibited-practice indicators** — Flags components whose capabilities fall within the scope of the prohibitions already in force since 2 Feb 2025 (emotion inference, biometric identification and categorisation). Indicators with the legal question attached, never verdicts: whether a prohibition applies turns on deployment context no scanner can observe
 - **OWASP ML Top 10** — Cross-references dependencies with known ML attack vectors (supply chain, prompt injection, model theft, data poisoning)
 - **Policy-as-Code** — `.aicap.yml` configuration for model governance (blocked/allowed models, risk thresholds, license restrictions)

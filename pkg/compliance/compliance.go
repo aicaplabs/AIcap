@@ -348,6 +348,13 @@ func GenerateAnnexIVMarkdownWithAttestation(bom types.AIBOM, register types.Risk
 		sb.WriteString(art5)
 	}
 
+	// Article 50 transparency duties follow Article 5: same "already
+	// dated" framing, and 50(3) is the floor that remains for emotion
+	// and biometric systems once the Article 5 analysis clears them.
+	if art50 := RenderArticle50Markdown(bom.TransparencyObligations); art50 != "" {
+		sb.WriteString(art50)
+	}
+
 	// Section 5: Proof Drill / provenance.
 	//
 	// The wording branches on attestation because the two artefacts make

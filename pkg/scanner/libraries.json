@@ -614,5 +614,93 @@
   "clarifai": {
     "risk": "High",
     "desc": "Hosted Vision/Recognition API Client"
+  },
+  "tts": {
+    "risk": "High",
+    "desc": "Text-to-Speech Synthesis (Coqui TTS / XTTS voice cloning)"
+  },
+  "coqui-tts": {
+    "risk": "High",
+    "desc": "Text-to-Speech Synthesis (Coqui)"
+  },
+  "bark": {
+    "risk": "High",
+    "desc": "Generative Audio Model (speech, music, effects)"
+  },
+  "elevenlabs": {
+    "risk": "High",
+    "desc": "Hosted Voice Synthesis / Cloning API"
+  },
+  "audiocraft": {
+    "risk": "High",
+    "desc": "Generative Audio Models (MusicGen, AudioGen)"
+  },
+  "so-vits-svc": {
+    "risk": "High",
+    "desc": "Singing Voice Conversion (voice cloning)"
+  },
+  "rvc": {
+    "risk": "High",
+    "desc": "Retrieval-based Voice Conversion (voice cloning)"
+  },
+  "roop": {
+    "risk": "High",
+    "desc": "Face-Swap Video Generation (deep fake)"
+  },
+  "deepfacelab": {
+    "risk": "High",
+    "desc": "Deep Fake Creation Framework"
+  },
+  "faceswap": {
+    "risk": "High",
+    "desc": "Face-Swap Framework (deep fake)"
+  },
+  "sadtalker": {
+    "risk": "High",
+    "desc": "Talking-Head Video Generation from a still image"
+  },
+  "wav2lip": {
+    "risk": "High",
+    "desc": "Lip-Sync Video Generation"
+  },
+  "first-order-model": {
+    "risk": "High",
+    "desc": "Image Animation / Motion Transfer"
+  },
+  "controlnet-aux": {
+    "risk": "Medium",
+    "desc": "ControlNet Preprocessors for Image Generation"
+  },
+  "invokeai": {
+    "risk": "High",
+    "desc": "Image Generation Suite (Stable Diffusion)"
+  },
+  "invisible-watermark": {
+    "risk": "Low",
+    "desc": "Invisible Image Watermarking (Article 50(2) marking control)"
+  },
+  "imwatermark": {
+    "risk": "Low",
+    "desc": "Invisible Image Watermarking (Article 50(2) marking control)"
+  },
+  "blind-watermark": {
+    "risk": "Low",
+    "desc": "Blind Image Watermarking (Article 50(2) marking control)"
+  },
+  "c2pa": {
+    "risk": "Low",
+    "desc": "C2PA Content Credentials (provenance manifest; Article 50 marking control)"
+  },
+  "c2pa-python": {
+    "risk": "Low",
+    "desc": "C2PA Content Credentials (provenance manifest; Article 50 marking control)"
+  },
+  "audioseal": {
+    "risk": "Low",
+    "desc": "Audio Watermarking (Article 50(2) marking control)"
+  },
+  "stegano": {
+    "risk": "Low",
+    "desc": "Steganography Library (can carry provenance marks)"
   }
 }

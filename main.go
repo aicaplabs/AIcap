@@ -195,6 +195,26 @@ func main() {
 				fmt.Println("    EUR 35M or 7% of worldwide turnover (Article 99(3)).")
 			}
 
+			// Article 50 transparency duties (Wave 21). Compact by
+			// design — one line per duty plus any technical evidence
+			// found. The full requirement text lives in the Annex IV
+			// draft; repeating it on stdout would drown the scan result.
+			if len(bom.TransparencyObligations) > 0 {
+				fmt.Printf("\n[i] EU AI Act Article 50 transparency duties — %d applicable (from 2 Aug 2026):\n",
+					len(bom.TransparencyObligations))
+				for _, o := range bom.TransparencyObligations {
+					fmt.Printf("    %s — %s\n", o.Article, o.Obligation)
+					if o.EvidenceIsDetectable {
+						if len(o.EvidenceFound) > 0 {
+							fmt.Printf("      evidence: %s\n", strings.Join(o.EvidenceFound, ", "))
+						} else {
+							fmt.Println("      evidence: no machine-readable marking library detected")
+						}
+					}
+				}
+				fmt.Println("    These require disclosure, not classification. See the Annex IV draft.")
+			}
+
 			if opts.AnnexIVPath != "" {
 				if err := os.WriteFile(opts.AnnexIVPath, []byte(annexIV), 0o644); err != nil {
 					fmt.Printf("[-] Warning: could not write Annex IV draft to %s: %v\n", opts.AnnexIVPath, err)

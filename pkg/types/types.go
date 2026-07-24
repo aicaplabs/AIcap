@@ -104,6 +104,10 @@ type AIBOM struct {
 	// Empty means no *detectable* indicator matched — not a clearance,
 	// since several Article 5 prohibitions leave no trace in a manifest.
 	ProhibitedPractices []ProhibitedPracticeSignal `json:"prohibitedPractices,omitempty"`
+	// TransparencyObligations (Wave 21) are EU AI Act Article 50
+	// disclosure duties the system appears to attract. Like Article 5,
+	// an empty list is not a clearance.
+	TransparencyObligations []TransparencyObligation `json:"transparencyObligations,omitempty"`
 }
 
 // FinOpsRightsizing is one rightsizing suggestion for a detected
@@ -515,4 +519,32 @@ type ProhibitedPracticeSignal struct {
 	AppliesWhen string `json:"appliesWhen"`
 	Question    string `json:"question"`
 	Status      string `json:"status"`
+}
+
+// TransparencyObligation is one EU AI Act Article 50 disclosure duty the
+// scanned system appears to attract.
+//
+// Grouped per obligation rather than per component: a project with eight
+// LLM libraries has one Article 50(1) duty, and reporting it eight times
+// would bury the sentence the reader has to act on.
+//
+// EvidenceIsDetectable records whether this duty can be discharged by
+// something a dependency scan could see at all. It matters because the
+// honest reading of an empty EvidenceFound differs completely between
+// the two cases: for Article 50(2) it means no watermarking library was
+// found, which is informative; for Article 50(1) it means nothing,
+// because that duty is discharged by interface copy.
+type TransparencyObligation struct {
+	ID          string `json:"id"`
+	Article     string `json:"article"`
+	Obligation  string `json:"obligation"`
+	Requirement string `json:"requirement"`
+	AppliesWhen string `json:"appliesWhen"`
+	Question    string `json:"question"`
+	// DischargedBy describes what actually satisfies the duty.
+	DischargedBy         string   `json:"dischargedBy"`
+	TriggeredBy          []string `json:"triggeredBy"`
+	EvidenceFound        []string `json:"evidenceFound,omitempty"`
+	EvidenceIsDetectable bool     `json:"evidenceIsDetectable"`
+	Status               string   `json:"status"`
 }
