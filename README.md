@@ -53,6 +53,7 @@
 - **Article 5 prohibited-practice indicators** — Flags components whose capabilities fall within the scope of the prohibitions already in force since 2 Feb 2025 (emotion inference, biometric identification and categorisation). Indicators with the legal question attached, never verdicts: whether a prohibition applies turns on deployment context no scanner can observe
 - **OWASP ML Top 10** — Cross-references dependencies with known ML attack vectors (supply chain, prompt injection, model theft, data poisoning)
 - **Policy-as-Code** — `.aicap.yml` configuration for model governance (blocked/allowed models, risk thresholds, license restrictions)
+- **SPDX 2.3** — Linux Foundation / ISO 5962 SBOM output, the format named in US federal procurement guidance and many enterprise questionnaires. Vendor licence strings become `LicenseRef` entries rather than invalid expressions; advisories attach as SECURITY external references
 - **CycloneDX 1.5** — Industry-standard SBOM output with Package URLs (PURLs) and a populated `vulnerabilities` array (live OSV advisories, linked to components by `bom-ref`, with upgrade targets) so Dependency-Track and friends ingest what the scan already found
 
 ### 💸 AI FinOps
@@ -210,6 +211,7 @@ allowed_licenses:
 |---|---|
 | `--cli` | Run in headless CI/CD mode |
 | `--cyclonedx` | Output CycloneDX 1.5 JSON instead of AIcap format |
+| `--spdx` | Output SPDX 2.3 JSON instead of AIcap format |
 | `--annex-iv <path>` | Write the Annex IV technical documentation draft to `<path>` |
 | `--no-annex-iv` | Skip Annex IV generation (and the OSV lookups it performs) |
 | `--image <ref>` | Scan a container image from a registry. Repeatable |

@@ -156,6 +156,10 @@ func main() {
 			cdx := compliance.GenerateCycloneDXBOMWithRegister(bom, register)
 			cdxJSON, _ := json.MarshalIndent(cdx, "", "  ")
 			fmt.Println(string(cdxJSON))
+		} else if opts.WantSPDX {
+			doc := compliance.GenerateSPDXDocument(bom, register)
+			spdxJSON, _ := json.MarshalIndent(doc, "", "  ")
+			fmt.Println(string(spdxJSON))
 		} else {
 			fmt.Println(string(bomJSON))
 		}
@@ -508,6 +512,11 @@ type cliOptions struct {
 	ImageRefs     []string
 	TarballPaths  []string
 	WantCycloneDX bool
+	// WantSPDX emits an SPDX 2.3 document instead of the AIcap JSON.
+	// Separate from WantCycloneDX because the two formats are not
+	// interchangeable — a procurement questionnaire asking for SPDX is
+	// not satisfied by CycloneDX.
+	WantSPDX bool
 	// AnnexIVPath, when non-empty, is where the Annex IV markdown draft
 	// is written. Empty means "don't write a file"; the draft is still
 	// generated and summarised on stdout.
@@ -523,6 +532,7 @@ type cliOptions struct {
 //	--image <ref>      Remote registry reference. Repeatable.
 //	--image-tar <path> Local docker-save tarball. Repeatable.
 //	--cyclonedx        Emit CycloneDX-formatted SBOM instead of AICAP JSON.
+//	--spdx             Emit an SPDX 2.3 SBOM instead of AICAP JSON.
 //	--annex-iv <path>  Write the Annex IV markdown draft to <path>.
 //	--no-annex-iv      Skip Annex IV generation (and its OSV lookups).
 //
@@ -547,6 +557,8 @@ func parseCLIArgs(args []string) cliOptions {
 			}
 		case "--cyclonedx":
 			opts.WantCycloneDX = true
+		case "--spdx":
+			opts.WantSPDX = true
 		case "--annex-iv":
 			if i+1 < len(args) {
 				opts.AnnexIVPath = args[i+1]
