@@ -23,9 +23,10 @@ export default function PricingSection() {
           Free for the CLI. Pay for the audit ledger.
         </h2>
         <p className="text-slate-600 mt-3 max-w-2xl mx-auto">
-          The scanner is open source and runs anywhere. Pro adds the
-          immutable proof-drill ledger, hosted Annex IV reports, and the
-          self-serve billing portal.
+          The scanner is open source and runs anywhere — the AI-BOM, the risk
+          register, and the Annex IV draft are all free. Pro adds what you
+          can't generate for yourself: a tamper-evident record an auditor can
+          check without taking your word for it.
         </p>
       </div>
 
@@ -39,10 +40,12 @@ export default function PricingSection() {
           <p className="text-3xl font-extrabold text-slate-900">$0</p>
           <p className="text-sm text-slate-500 mb-6">forever, MIT licensed</p>
           <ul className="space-y-3 text-sm text-slate-700 flex-grow">
-            <PricingFeature>Full AI-BOM scan (Python, Node, Go, Docker, K8s, Terraform)</PricingFeature>
+            <PricingFeature>Full AI-BOM scan (Python, Node, Go, Docker, K8s, Terraform, notebooks)</PricingFeature>
             <PricingFeature>CycloneDX 1.5 SBOM output</PricingFeature>
-            <PricingFeature>Annex IV markdown generation</PricingFeature>
-            <PricingFeature>OWASP ML Top 10 risk register</PricingFeature>
+            <PricingFeature>Annex IV markdown draft (marked unattested)</PricingFeature>
+            <PricingFeature>Article 9 risk register, OWASP ML Top 10 / MITRE ATLAS</PricingFeature>
+            <PricingFeature>Live OSV.dev CVE / GHSA enrichment, with fix versions</PricingFeature>
+            <PricingFeature>GPU FinOps cost estimates</PricingFeature>
             <PricingFeature>GitHub Action distribution</PricingFeature>
             <PricingFeature>Up to 10 cloud-synced scans / month</PricingFeature>
           </ul>
@@ -69,11 +72,13 @@ export default function PricingSection() {
           <p className="text-sm text-slate-500 mb-6">per workspace, billed monthly</p>
           <ul className="space-y-3 text-sm text-slate-700 flex-grow">
             <PricingFeature>Everything in Free</PricingFeature>
+            <PricingFeature>
+              Ledger-anchored Annex IV — attested, not &ldquo;generated on my own laptop&rdquo;
+            </PricingFeature>
+            <PricingFeature>Hash-chained audit ledger: tampering breaks every later link</PricingFeature>
+            <PricingFeature>Shareable report links — auditors need no account</PricingFeature>
+            <PricingFeature>Full scan history, per commit, with PDF export</PricingFeature>
             <PricingFeature>Unlimited cloud-synced scans</PricingFeature>
-            <PricingFeature>Hash-chained immutable audit ledger</PricingFeature>
-            <PricingFeature>Hosted Annex IV reports per commit</PricingFeature>
-            <PricingFeature>Live OSV.dev CVE / GHSA enrichment</PricingFeature>
-            <PricingFeature>GPU FinOps cost estimates</PricingFeature>
             <PricingFeature>Stripe self-serve billing portal</PricingFeature>
           </ul>
           <a
