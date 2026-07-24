@@ -9,6 +9,44 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 Trial of new features lands on `development` first. Once a stable
 batch is ready, it is merged to `main` and tagged.
 
+## [1.7.1] — 2026-07-24 — Report defects found by reading a generated PDF
+
+Four defects in the produced document, none of which the test suite
+caught because every one of them was about how the report *reads*
+rather than what it computes.
+
+### Fixed
+
+- **Blockquotes were not rendered.** The markdown-to-HTML converter had
+  no branch for them, so quoted lines were escaped to `&gt;` and joined
+  into a run-on paragraph. Every legally protective statement in the
+  product is a blockquote — the Article 5 "this is not a finding that
+  you are committing a prohibited practice" disclaimer, the Article 50
+  framing that these are disclosure duties rather than prohibitions,
+  and the § 5 warning that a locally generated document is unattested
+  and cannot be independently verified. All three reached the reader as
+  garbled prose. Now rendered as a styled callout in the PDF export,
+  the shared report page, and the published guides.
+- **The risk register listed the same component twice.** A finding was
+  emitted per detection site, so a package found in both a manifest and
+  a lockfile appeared twice. Because OSV enrichment attached advisories
+  by component name, only one of the two rows received them — a reader
+  saw the same component and version listed twice, once with ten CVEs
+  and once with none. Findings are now unique per (component, version),
+  and enrichment is keyed the same way so advisories land on the
+  version they were actually reported against. Distinct versions of one
+  package remain distinct rows.
+- **Import-only rows sat beside versioned ones.** A detection with no
+  resolvable version cannot be checked against OSV, so it rendered an
+  empty advisory column next to a row listing real CVEs for the same
+  library. Dropped when a concrete version of that component is known;
+  kept when it is the only evidence available.
+- **The `v` prefix was applied to values that are not versions.** The
+  version field also carries model identifiers, manifest constraints,
+  and scanner placeholders, producing `vgpt-5`,
+  `vmodels/llama-3-8b.gguf`, `v>=2.0` and `vdocker-install` in an
+  auditor-facing document.
+
 ## [1.7.0] — 2026-07-24 — SPDX output, and cost figures out of the compliance document
 
 A short release with one addition and one subtraction. The subtraction
