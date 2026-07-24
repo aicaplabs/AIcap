@@ -53,6 +53,9 @@ const PAGE_CSS = `
   h3 { font-size: 16px; color: #1e293b; margin: 24px 0 6px; }
   p { margin: 10px 0; } ul { padding-left: 22px; } li { margin: 6px 0; }
   em { color: #64748b; }
+  blockquote { margin: 14px 0; padding: 10px 16px; border-left: 3px solid #f59e0b;
+               background: #fffbeb; color: #78350f; border-radius: 0 8px 8px 0; }
+  blockquote p { margin: 4px 0; }
   code { background: #f1f5f9; border: 1px solid #e2e8f0; border-radius: 4px;
          padding: 1px 5px; font-size: 13px; font-family: Consolas, monospace; }
   pre { background: #0f172a; color: #e2e8f0; border-radius: 10px; padding: 16px 18px;

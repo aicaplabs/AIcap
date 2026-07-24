@@ -660,3 +660,148 @@ func TestCycloneDX_VulnerabilityOrderIsStable(t *testing.T) {
 		t.Errorf("order = %s…, want sorted by id", first.Vulnerabilities[0].ID)
 	}
 }
+
+// --- Report-quality fixes found by reading an actual generated PDF ------
+
+func TestDisplayVersion_OnlyPrefixesRealVersions(t *testing.T) {
+	// The Version field carries more than versions: model identifiers for
+	// "Hardcoded Model" findings, manifest constraints, and scanner
+	// placeholders. A blanket "v" prefix produced "vgpt-5",
+	// "vmodels/llama-3-8b.gguf", "v>=2.0" and "vdocker-install" in a
+	// document handed to auditors.
+	cases := map[string]string{
+		"1.12.0":                 "v1.12.0",
+		"0.24.2":                 "v0.24.2",
+		"gpt-5":                  "gpt-5",
+		"claude-opus-4-5":        "claude-opus-4-5",
+		"models/llama-3-8b.gguf": "models/llama-3-8b.gguf",
+		">=2.0":                  ">=2.0",
+		"docker-install":         "docker-install",
+		"imported":               "imported",
+		"":                       "unspecified",
+	}
+	for in, want := range cases {
+		if got := DisplayVersion(in); got != want {
+			t.Errorf("DisplayVersion(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+func TestComputeRiskRegister_DeduplicatesSameComponentAndVersion(t *testing.T) {
+	// The same package detected in a manifest and a lockfile is one entry
+	// in the register, not two. A real report listed `openai v1.12.0`
+	// twice with identical content.
+	bom := types.AIBOM{Dependencies: []types.AIDependency{
+		{Name: "openai", Version: "1.12.0", Ecosystem: "Python (pip)"},
+		{Name: "openai", Version: "1.12.0", Ecosystem: "Python (Poetry lock)"},
+		{Name: "openai", Version: "1.12.0", Ecosystem: "Source Code (.py import)"},
+	}}
+
+	reg := ComputeRiskRegister(bom)
+	if len(reg.Findings) != 1 {
+		t.Fatalf("findings = %d, want 1: %+v", len(reg.Findings), reg.Findings)
+	}
+	// The summary counts must not double-count either — that header is
+	// the first thing an auditor reads.
+	if reg.Summary.Total != 1 {
+		t.Errorf("summary total = %d, want 1", reg.Summary.Total)
+	}
+}
+
+func TestComputeRiskRegister_KeepsDistinctVersionsSeparate(t *testing.T) {
+	// Two versions of the same package in different manifests are
+	// genuinely two things to assess, and must not be collapsed.
+	bom := types.AIBOM{Dependencies: []types.AIDependency{
+		{Name: "scikit-learn", Version: "0.24.2", Ecosystem: "Python (pip)"},
+		{Name: "scikit-learn", Version: "1.4.0", Ecosystem: "Python (Poetry lock)"},
+	}}
+
+	reg := ComputeRiskRegister(bom)
+	if len(reg.Findings) != 2 {
+		t.Fatalf("findings = %d, want 2 (distinct versions): %+v", len(reg.Findings), reg.Findings)
+	}
+}
+
+func TestEnrichWithOSV_AdvisoriesLandOnTheRightVersion(t *testing.T) {
+	// The bug this pins: enrichment indexed findings by component name
+	// alone, so with two versions present every advisory piled onto
+	// whichever row was indexed — attributing a vulnerability to a
+	// version that does not have it, inside a compliance document.
+	server := newMockOSV(t, func(q osvQuery) []osvVuln {
+		if q.Version == "0.24.2" {
+			return []osvVuln{{ID: "GHSA-old-only"}}
+		}
+		return nil // 1.4.0 is clean
+	})
+	t.Cleanup(server.Close)
+	withOSVURL(t, server.URL)
+
+	bom := types.AIBOM{Dependencies: []types.AIDependency{
+		{Name: "scikit-learn", Version: "0.24.2", Ecosystem: "Python (pip)"},
+		{Name: "scikit-learn", Version: "1.4.0", Ecosystem: "Python (Poetry lock)"},
+	}}
+	reg := ComputeRiskRegister(bom)
+	EnrichWithOSV(context.Background(), &reg, bom, NewOSVClient())
+
+	byVersion := map[string][]string{}
+	for _, f := range reg.Findings {
+		byVersion[f.Version] = f.LiveVulnIDs
+	}
+	if len(byVersion["0.24.2"]) != 1 || byVersion["0.24.2"][0] != "GHSA-old-only" {
+		t.Errorf("0.24.2 advisories = %v, want [GHSA-old-only]", byVersion["0.24.2"])
+	}
+	if len(byVersion["1.4.0"]) != 0 {
+		t.Errorf("1.4.0 has advisories %v, but the advisory was reported against 0.24.2 only",
+			byVersion["1.4.0"])
+	}
+}
+
+func TestRenderRiskRegisterMarkdown_NoStrayVPrefix(t *testing.T) {
+	reg := types.RiskRegister{Findings: []types.RiskFinding{
+		{Component: "torch", Version: ">=2.0", Severity: "High", Status: "open"},
+		{Component: "transformers", Version: "docker-install", Severity: "High", Status: "open"},
+		{Component: "openai", Version: "1.12.0", Severity: "Medium", Status: "open"},
+	}}
+	md := RenderRiskRegisterMarkdown(reg)
+
+	for _, bad := range []string{"v>=2.0", "vdocker-install"} {
+		if strings.Contains(md, bad) {
+			t.Errorf("register table contains %q", bad)
+		}
+	}
+	if !strings.Contains(md, "v1.12.0") {
+		t.Error("a real version lost its v prefix")
+	}
+}
+
+func TestComputeRiskRegister_DropsPlaceholderRowWhenAVersionIsKnown(t *testing.T) {
+	// `import openai` plus `openai==1.12.0` in requirements is one
+	// component. The import-only row carries no version, so it can never
+	// be checked against OSV — leaving it in put an empty advisory
+	// column next to a row listing ten CVEs for the same library.
+	bom := types.AIBOM{Dependencies: []types.AIDependency{
+		{Name: "openai", Version: "imported", Ecosystem: "Source Code (.py import)"},
+		{Name: "openai", Version: "1.12.0", Ecosystem: "Python (pip)"},
+	}}
+
+	reg := ComputeRiskRegister(bom)
+	if len(reg.Findings) != 1 {
+		t.Fatalf("findings = %d, want 1: %+v", len(reg.Findings), reg.Findings)
+	}
+	if reg.Findings[0].Version != "1.12.0" {
+		t.Errorf("kept version %q, want the concrete one", reg.Findings[0].Version)
+	}
+}
+
+func TestComputeRiskRegister_KeepsPlaceholderWhenItIsAllWeHave(t *testing.T) {
+	// A bare import with no manifest pin is still worth reporting — the
+	// component is present, we just cannot say which version.
+	bom := types.AIBOM{Dependencies: []types.AIDependency{
+		{Name: "openai", Version: "imported", Ecosystem: "Source Code (.py import)"},
+	}}
+
+	reg := ComputeRiskRegister(bom)
+	if len(reg.Findings) != 1 {
+		t.Fatalf("findings = %d, want the import-only finding retained", len(reg.Findings))
+	}
+}

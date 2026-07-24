@@ -324,9 +324,15 @@ func EnrichWithOSV(ctx context.Context, register *types.RiskRegister, bom types.
 
 	// Existing catalog findings, indexed so a live result lands on the
 	// finding it belongs to rather than creating a duplicate row.
-	indexByName := map[string]int{}
+	//
+	// Keyed by (component, version), not component alone. A project can
+	// legitimately carry two versions of the same package in different
+	// manifests, and a name-only index sent both versions' advisories to
+	// whichever row happened to be indexed — attributing a vulnerability
+	// to a version that does not have it, in a compliance document.
+	indexByKey := map[string]int{}
 	for i, f := range register.Findings {
-		indexByName[strings.ToLower(f.Component)] = i
+		indexByKey[strings.ToLower(f.Component)+"@"+f.Version] = i
 	}
 
 	type job struct {
@@ -401,7 +407,7 @@ func EnrichWithOSV(ctx context.Context, register *types.RiskRegister, bom types.
 	})
 
 	for _, res := range results {
-		if idx, ok := indexByName[res.job.name]; ok {
+		if idx, ok := indexByKey[res.job.name+"@"+res.job.version]; ok {
 			f := &register.Findings[idx]
 			f.LiveVulns = mergeVulns(f.LiveVulns, res.vulns)
 			f.LiveVulnIDs = vulnIDs(f.LiveVulns)
@@ -441,7 +447,7 @@ func EnrichWithOSV(ctx context.Context, register *types.RiskRegister, bom types.
 			LiveVulnIDs: vulnIDs(res.vulns),
 		}
 		register.Findings = append(register.Findings, finding)
-		indexByName[res.job.name] = len(register.Findings) - 1
+		indexByKey[res.job.name+"@"+res.job.version] = len(register.Findings) - 1
 		register.Summary.Total++
 		switch finding.Severity {
 		case "High":
