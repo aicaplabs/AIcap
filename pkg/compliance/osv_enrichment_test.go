@@ -398,3 +398,56 @@ func TestEnrichWithOSV_CatalogFindingKeepsCuratedMitigationAndGainsFix(t *testin
 		t.Errorf("findings = %d, want 1", len(register.Findings))
 	}
 }
+
+// --- Attestation ---------------------------------------------------------
+
+func TestAnnexIV_LocalRender_DoesNotClaimAnImmutableAuditTrail(t *testing.T) {
+	// The reason it is safe to emit Annex IV from the free CLI at all.
+	// If this regresses, the tool ships a document asserting an audit
+	// trail that does not exist — the exact overstatement the product
+	// exists to prevent.
+	bom := types.AIBOM{ProjectName: "demo", CommitSha: "abc123"}
+	md := GenerateAnnexIVMarkdownWithAttestation(bom, ComputeRiskRegister(bom),
+		types.Attestation{Anchored: false})
+
+	if strings.Contains(md, "immutable audit trail") {
+		t.Error("a locally generated document must not claim an immutable audit trail")
+	}
+	for _, want := range []string{
+		"Unattested",
+		"not anchored to an audit ledger",
+		"It cannot be independently verified",
+		"AICAP_API_KEY",
+	} {
+		if !strings.Contains(md, want) {
+			t.Errorf("unattested provenance section missing %q", want)
+		}
+	}
+}
+
+func TestAnnexIV_AnchoredRender_KeepsLedgerLanguage(t *testing.T) {
+	bom := types.AIBOM{ProjectName: "demo", CommitSha: "abc123"}
+	md := GenerateAnnexIVMarkdownWithAttestation(bom, ComputeRiskRegister(bom),
+		types.Attestation{Anchored: true, LedgerHash: "deadbeef"})
+
+	if !strings.Contains(md, "immutable audit trail") {
+		t.Error("anchored render lost its ledger language")
+	}
+	if !strings.Contains(md, "deadbeef") {
+		t.Error("anchored render omits the ledger hash it was given")
+	}
+	if strings.Contains(md, "Unattested") {
+		t.Error("anchored render must not carry the unattested warning")
+	}
+}
+
+func TestGenerateAnnexIVMarkdownWithRegister_DefaultsToAnchored(t *testing.T) {
+	// /api/save-proof relies on this: its renders are persisted into the
+	// ledger, so the anchored wording is correct there and must not
+	// change as a side effect of the CLI work.
+	bom := types.AIBOM{ProjectName: "demo"}
+	md := GenerateAnnexIVMarkdownWithRegister(bom, ComputeRiskRegister(bom))
+	if !strings.Contains(md, "Immutable Compliance Proof") {
+		t.Error("save-proof render lost its anchored § 5")
+	}
+}

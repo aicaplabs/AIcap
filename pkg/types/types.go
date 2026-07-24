@@ -286,6 +286,30 @@ type RiskSummary struct {
 	Total  int `json:"total"`
 }
 
+// Attestation describes the provenance of a generated Annex IV document:
+// whether it is recorded in the hosted audit ledger, or was produced
+// locally and is therefore unverifiable by anyone but its author.
+//
+// This distinction is the whole point of the ledger. A document a party
+// generated on its own machine and can silently regenerate is evidence
+// of nothing to an auditor; one recorded in a hash chain held by a third
+// party, verifiable without that party's cooperation, is evidence of
+// something. Annex IV § 5 must state which of the two the reader is
+// holding — claiming an "immutable audit trail" on a document that has
+// no such trail would be precisely the kind of overstatement this
+// product exists to prevent.
+type Attestation struct {
+	// Anchored is true when this render is being persisted into the
+	// proof-drill ledger.
+	Anchored bool
+	// LedgerHash is the chain hash of the proof-drill row, when known
+	// at render time.
+	LedgerHash string
+	// VerifyURL is where a third party can independently check the
+	// record.
+	VerifyURL string
+}
+
 // LicenseMapping links a local/hardcoded model to its registry or proprietary license
 type LicenseMapping struct {
 	HFID    string `json:"hf_id,omitempty"`

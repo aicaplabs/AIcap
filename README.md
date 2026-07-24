@@ -58,10 +58,20 @@
 - **Terraform** — Identifies GPU instances across AWS/Azure/GCP with hourly cost data and spot pricing analysis
 - **Helm** — Analyzes `values.yaml` for GPU allocation without autoscaling, detects model serving frameworks
 
-### 🔒 Immutable Audit Ledger
-- SHA-256 cryptographic hashing of every scan (commit + BOM + documentation)
+### 🔒 Immutable Audit Ledger (Pro)
+- SHA-256 hash chain over every scan (commit + BOM + documentation), so editing,
+  reordering, or deleting any historical entry breaks verification at every later link
+- Shareable report links — hand an auditor a URL without giving them an account
 - Cloud dashboard for historical Proof Drills with timestamp verification
-- Enterprise-grade API key management with Stripe subscription lifecycle
+
+**What the free CLI does and does not give you.** The scan, the Article 9 risk
+register, the live CVE enrichment, and the Annex IV draft are all free and run
+entirely in your own pipeline. What Pro adds is *provenance*. A document you
+generated on the machine that holds your code can be regenerated, edited, or
+back-dated by anyone with access to that machine, so it is not evidence of
+anything to a third party — and a locally generated draft says exactly that in
+its § 5. Anchoring it to the ledger is what makes it checkable by someone who
+does not have to take your word for it.
 
 ---
 
@@ -101,7 +111,10 @@ aicap --cli ./my-project
 # CycloneDX SBOM format (for enterprise toolchains)
 aicap --cli ./my-project --cyclonedx
 
-# Auto-sync to AIcap Cloud
+# Annex IV technical documentation draft (free — no API key needed)
+aicap --cli ./my-project --annex-iv annex-iv.md
+
+# Auto-sync to AIcap Cloud — anchors the same document to the audit ledger
 AICAP_API_KEY=aicap_pro_sk_xxx aicap --cli ./my-project
 ```
 
@@ -155,6 +168,7 @@ allowed_licenses:
 |---|---|---|---|
 | `api-key` | AIcap Pro API key for cloud sync | No | `""` |
 | `scan-directory` | Target directory to scan | No | `.` |
+| `annex-iv-path` | Where to write the Annex IV draft | No | `aicap-annex-iv.md` |
 
 ## 📤 CLI Flags
 
@@ -162,6 +176,10 @@ allowed_licenses:
 |---|---|
 | `--cli` | Run in headless CI/CD mode |
 | `--cyclonedx` | Output CycloneDX 1.5 JSON instead of AIcap format |
+| `--annex-iv <path>` | Write the Annex IV technical documentation draft to `<path>` |
+| `--no-annex-iv` | Skip Annex IV generation (and the OSV lookups it performs) |
+| `--image <ref>` | Scan a container image from a registry. Repeatable |
+| `--image-tar <path>` | Scan a local `docker save` tarball. Repeatable |
 
 ## 🌍 Environment Variables
 

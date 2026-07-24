@@ -9,42 +9,44 @@ import (
 )
 
 func TestParseCLIArgs_DirectoryOnly(t *testing.T) {
-	dir, refs, tarballs, cdx := parseCLIArgs([]string{"./repo"})
-	if dir != "./repo" {
-		t.Errorf("dir=%q want ./repo", dir)
+	opts := parseCLIArgs([]string{"./repo"})
+	if opts.ScanDir != "./repo" {
+		t.Errorf("ScanDir=%q want ./repo", opts.ScanDir)
 	}
-	if len(refs) != 0 || len(tarballs) != 0 || cdx {
-		t.Errorf("unexpected flags: refs=%v tarballs=%v cdx=%v", refs, tarballs, cdx)
+	if len(opts.ImageRefs) != 0 || len(opts.TarballPaths) != 0 || opts.WantCycloneDX {
+		t.Errorf("unexpected flags: %+v", opts)
+	}
+	if opts.AnnexIVPath != "" || opts.NoAnnexIV {
+		t.Errorf("Annex IV defaults wrong: %+v", opts)
 	}
 }
 
 func TestParseCLIArgs_DefaultsScanDirToDot(t *testing.T) {
-	dir, _, _, _ := parseCLIArgs(nil)
-	if dir != "." {
-		t.Errorf("dir=%q want .", dir)
+	if got := parseCLIArgs(nil).ScanDir; got != "." {
+		t.Errorf("ScanDir=%q want .", got)
 	}
 }
 
 func TestParseCLIArgs_RepeatedImageFlags(t *testing.T) {
-	dir, refs, tarballs, cdx := parseCLIArgs([]string{
+	opts := parseCLIArgs([]string{
 		"./src",
 		"--image", "ghcr.io/foo/bar:1",
 		"--image-tar", "/tmp/local.tar",
 		"--image", "registry.example.com/baz:latest",
 		"--cyclonedx",
 	})
-	if dir != "./src" {
-		t.Errorf("dir=%q want ./src", dir)
+	if opts.ScanDir != "./src" {
+		t.Errorf("ScanDir=%q want ./src", opts.ScanDir)
 	}
 	wantRefs := []string{"ghcr.io/foo/bar:1", "registry.example.com/baz:latest"}
-	if !reflect.DeepEqual(refs, wantRefs) {
-		t.Errorf("refs=%v want %v", refs, wantRefs)
+	if !reflect.DeepEqual(opts.ImageRefs, wantRefs) {
+		t.Errorf("ImageRefs=%v want %v", opts.ImageRefs, wantRefs)
 	}
 	wantTar := []string{"/tmp/local.tar"}
-	if !reflect.DeepEqual(tarballs, wantTar) {
-		t.Errorf("tarballs=%v want %v", tarballs, wantTar)
+	if !reflect.DeepEqual(opts.TarballPaths, wantTar) {
+		t.Errorf("TarballPaths=%v want %v", opts.TarballPaths, wantTar)
 	}
-	if !cdx {
+	if !opts.WantCycloneDX {
 		t.Error("expected --cyclonedx to be true")
 	}
 }
@@ -52,18 +54,41 @@ func TestParseCLIArgs_RepeatedImageFlags(t *testing.T) {
 func TestParseCLIArgs_UnknownFlagsIgnored(t *testing.T) {
 	// Forward-compat: an older binary called by a newer action.yml
 	// must not abort on unrecognised flags.
-	dir, _, _, _ := parseCLIArgs([]string{"--future-flag", "value", "./src"})
-	if dir != "./src" {
-		t.Errorf("dir=%q want ./src", dir)
+	if got := parseCLIArgs([]string{"--future-flag", "value", "./src"}).ScanDir; got != "./src" {
+		t.Errorf("ScanDir=%q want ./src", got)
 	}
 }
 
 func TestParseCLIArgs_MissingFlagValueIsTolerated(t *testing.T) {
 	// --image at the very end with no value should not panic; the
 	// flag is simply dropped.
-	_, refs, _, _ := parseCLIArgs([]string{"./src", "--image"})
-	if len(refs) != 0 {
-		t.Errorf("trailing --image with no value should be ignored, got refs=%v", refs)
+	if got := parseCLIArgs([]string{"./src", "--image"}).ImageRefs; len(got) != 0 {
+		t.Errorf("trailing --image with no value should be ignored, got %v", got)
+	}
+}
+
+// Wave 16: Annex IV flags.
+
+func TestParseCLIArgs_AnnexIVPath(t *testing.T) {
+	opts := parseCLIArgs([]string{"./src", "--annex-iv", "out/annex-iv.md"})
+	if opts.AnnexIVPath != "out/annex-iv.md" {
+		t.Errorf("AnnexIVPath=%q want out/annex-iv.md", opts.AnnexIVPath)
+	}
+	if opts.ScanDir != "./src" {
+		t.Errorf("ScanDir=%q want ./src", opts.ScanDir)
+	}
+}
+
+func TestParseCLIArgs_NoAnnexIV(t *testing.T) {
+	opts := parseCLIArgs([]string{"./src", "--no-annex-iv"})
+	if !opts.NoAnnexIV {
+		t.Error("--no-annex-iv did not set NoAnnexIV")
+	}
+}
+
+func TestParseCLIArgs_AnnexIVPathMissingValueIsTolerated(t *testing.T) {
+	if got := parseCLIArgs([]string{"./src", "--annex-iv"}).AnnexIVPath; got != "" {
+		t.Errorf("trailing --annex-iv with no value should be ignored, got %q", got)
 	}
 }
 
