@@ -20,6 +20,7 @@ import (
 
 	"aicap/pkg/auth"
 	"aicap/pkg/compliance"
+	"aicap/pkg/drift"
 	"aicap/pkg/httplog"
 	"aicap/pkg/ledger"
 	"aicap/pkg/scanner"
@@ -537,6 +538,161 @@ func RegisterRoutes(mux *http.ServeMux, db *sql.DB, isCloudSaaS bool) {
 		mux.HandleFunc("/api/history", withCORS(auth.RequireSupabaseJWT(historyHandler)))
 	} else {
 		mux.HandleFunc("/api/history", historyHandler)
+	}
+
+	// --- Drift --------------------------------------------------------------
+	// /api/drift compares two of the caller's proof drills and reports what
+	// changed. Defaults to the two most recent, which is the question a user
+	// actually has ("what changed in this scan?"); ?to=<hash> compares that
+	// entry against its own predecessor, so a drift record can be pulled for
+	// any historical point rather than only the head.
+	//
+	// This is the "continuous" the product name promises, and the Article 72
+	// post-market-monitoring hook: a provider must actively review experience
+	// with the system over its lifetime, and per-commit drift is that record.
+	// It is also the one thing here a point-in-time audit cannot replicate.
+	//
+	// Tenant-scoped like every other dashboard read — the query never leaves
+	// the caller's user_id, so a guessed hash from another tenant resolves to
+	// nothing.
+	driftHandler := func(w http.ResponseWriter, r *http.Request) {
+		cors(w, r)
+		w.Header().Set("Access-Control-Allow-Methods", "GET, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+		if r.Method == http.MethodOptions {
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		if db == nil {
+			http.Error(w, "Database not configured", http.StatusInternalServerError)
+			return
+		}
+
+		type scanRow struct {
+			commitSha  string
+			cryptoHash string
+			bomJSON    []byte
+			regJSON    []byte
+			createdAt  time.Time
+		}
+
+		// Two rows, newest first: the target and its immediate predecessor.
+		// Selecting them in one query keeps the pair consistent — fetching
+		// them separately could straddle a concurrent write and diff a scan
+		// against itself.
+		var (
+			rows *sql.Rows
+			err  error
+		)
+		target := r.URL.Query().Get("to")
+		userID := auth.UserID(r)
+
+		switch {
+		case target != "" && isCloudSaaS:
+			rows, err = db.QueryContext(r.Context(), `
+				SELECT commit_sha, crypto_hash, ai_bom_json::text, COALESCE(risk_register_state::text, ''), created_at
+				FROM proof_drills
+				WHERE user_id = $1
+				  AND created_at <= (SELECT created_at FROM proof_drills WHERE user_id = $1 AND crypto_hash = $2)
+				ORDER BY created_at DESC, id DESC
+				LIMIT 2`, userID, target)
+		case target != "":
+			rows, err = db.QueryContext(r.Context(), `
+				SELECT commit_sha, crypto_hash, ai_bom_json::text, COALESCE(risk_register_state::text, ''), created_at
+				FROM proof_drills
+				WHERE created_at <= (SELECT created_at FROM proof_drills WHERE crypto_hash = $1)
+				ORDER BY created_at DESC, id DESC
+				LIMIT 2`, target)
+		case isCloudSaaS:
+			rows, err = db.QueryContext(r.Context(), `
+				SELECT commit_sha, crypto_hash, ai_bom_json::text, COALESCE(risk_register_state::text, ''), created_at
+				FROM proof_drills
+				WHERE user_id = $1
+				ORDER BY created_at DESC, id DESC
+				LIMIT 2`, userID)
+		default:
+			rows, err = db.QueryContext(r.Context(), `
+				SELECT commit_sha, crypto_hash, ai_bom_json::text, COALESCE(risk_register_state::text, ''), created_at
+				FROM proof_drills
+				ORDER BY created_at DESC, id DESC
+				LIMIT 2`)
+		}
+		if err != nil {
+			httplog.From(r.Context()).Error("drift query failed", slog.Any("error", err))
+			http.Error(w, "Internal server error", http.StatusInternalServerError)
+			return
+		}
+		defer rows.Close()
+
+		var scans []scanRow
+		for rows.Next() {
+			var s scanRow
+			if err := rows.Scan(&s.commitSha, &s.cryptoHash, &s.bomJSON, &s.regJSON, &s.createdAt); err != nil {
+				httplog.From(r.Context()).Error("drift scan failed", slog.Any("error", err))
+				http.Error(w, "Internal server error", http.StatusInternalServerError)
+				return
+			}
+			scans = append(scans, s)
+		}
+
+		// Fewer than two scans is not an error — it is the normal state of
+		// a new account, and the answer is "there is nothing to compare
+		// yet" rather than a 404 the dashboard has to special-case.
+		if len(scans) < 2 {
+			json.NewEncoder(w).Encode(map[string]any{
+				"available": false,
+				"reason":    "Fewer than two scans recorded for this project — drift needs a baseline to compare against.",
+				"scans":     len(scans),
+			})
+			return
+		}
+
+		newer, older := scans[0], scans[1]
+
+		var toBOM, fromBOM types.AIBOM
+		if err := json.Unmarshal(newer.bomJSON, &toBOM); err != nil {
+			httplog.From(r.Context()).Error("drift decode newer bom failed", slog.Any("error", err))
+			http.Error(w, "Internal server error", http.StatusInternalServerError)
+			return
+		}
+		if err := json.Unmarshal(older.bomJSON, &fromBOM); err != nil {
+			httplog.From(r.Context()).Error("drift decode older bom failed", slog.Any("error", err))
+			http.Error(w, "Internal server error", http.StatusInternalServerError)
+			return
+		}
+
+		// Registers are best-effort: rows written before Wave 6 have an
+		// empty risk_register_state. A missing register means the risk
+		// half of the diff is empty, not that the whole comparison fails.
+		var toReg, fromReg types.RiskRegister
+		if len(newer.regJSON) > 0 {
+			_ = json.Unmarshal(newer.regJSON, &toReg)
+		}
+		if len(older.regJSON) > 0 {
+			_ = json.Unmarshal(older.regJSON, &fromReg)
+		}
+
+		result := drift.Compute(fromBOM, toBOM, fromReg, toReg)
+		result.From = types.DriftEndpoint{
+			CommitSha:  older.commitSha,
+			CryptoHash: older.cryptoHash,
+			CreatedAt:  older.createdAt.Format(time.RFC3339),
+		}
+		result.To = types.DriftEndpoint{
+			CommitSha:  newer.commitSha,
+			CryptoHash: newer.cryptoHash,
+			CreatedAt:  newer.createdAt.Format(time.RFC3339),
+		}
+
+		json.NewEncoder(w).Encode(map[string]any{
+			"available": true,
+			"drift":     result,
+		})
+	}
+	if isCloudSaaS {
+		mux.HandleFunc("/api/drift", withCORS(auth.RequireSupabaseJWT(driftHandler)))
+	} else {
+		mux.HandleFunc("/api/drift", driftHandler)
 	}
 
 	// --- Single proof -------------------------------------------------------

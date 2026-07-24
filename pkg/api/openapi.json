@@ -268,6 +268,137 @@
             "type": "string"
           }
         }
+      },
+      "Drift": {
+        "type": "object",
+        "properties": {
+          "from": {
+            "$ref": "#/components/schemas/DriftEndpoint"
+          },
+          "to": {
+            "$ref": "#/components/schemas/DriftEndpoint"
+          },
+          "dependencies": {
+            "type": "object",
+            "properties": {
+              "added": {
+                "type": "array",
+                "items": {
+                  "type": "object"
+                }
+              },
+              "removed": {
+                "type": "array",
+                "items": {
+                  "type": "object"
+                }
+              },
+              "versionChanged": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "name": {
+                      "type": "string"
+                    },
+                    "ecosystem": {
+                      "type": "string"
+                    },
+                    "fromVersion": {
+                      "type": "string"
+                    },
+                    "toVersion": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "risk": {
+            "type": "object",
+            "properties": {
+              "newFindings": {
+                "type": "array",
+                "items": {
+                  "type": "object"
+                }
+              },
+              "resolvedFindings": {
+                "type": "array",
+                "items": {
+                  "type": "object"
+                }
+              },
+              "newAdvisories": {
+                "type": "array",
+                "description": "Advisories that appeared since the previous scan. When the component's version is unchanged, nobody touched it — the world changed underneath.",
+                "items": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "complianceChange": {
+            "type": "object",
+            "properties": {
+              "from": {
+                "type": "string"
+              },
+              "to": {
+                "type": "string"
+              },
+              "regressed": {
+                "type": "boolean"
+              }
+            }
+          },
+          "summary": {
+            "type": "object",
+            "properties": {
+              "dependenciesAdded": {
+                "type": "integer"
+              },
+              "dependenciesRemoved": {
+                "type": "integer"
+              },
+              "versionsChanged": {
+                "type": "integer"
+              },
+              "newFindings": {
+                "type": "integer"
+              },
+              "resolvedFindings": {
+                "type": "integer"
+              },
+              "newAdvisories": {
+                "type": "integer"
+              },
+              "highRiskAdded": {
+                "type": "integer"
+              },
+              "regressed": {
+                "type": "boolean",
+                "description": "Broad by design: worse posture, a new high-risk component, or a new advisory against something already present. This is what an alerting rule reads."
+              }
+            }
+          }
+        }
+      },
+      "DriftEndpoint": {
+        "type": "object",
+        "properties": {
+          "commitSha": {
+            "type": "string"
+          },
+          "cryptoHash": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
       }
     }
   },
@@ -930,6 +1061,58 @@
                 }
               }
             }
+          }
+        }
+      }
+    },
+    "/api/drift": {
+      "get": {
+        "tags": [
+          "dashboard"
+        ],
+        "summary": "Compare two proof drills and report what changed. Defaults to the two most recent; ?to=<hash> compares that entry against its own predecessor.",
+        "description": "Scan-to-scan drift. The signal this exists for is an advisory appearing against a dependency the project has not touched — a point-in-time audit cannot catch that. Also the EU AI Act Article 72 post-market-monitoring hook.",
+        "security": [
+          {
+            "supabaseJWT": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "to",
+            "in": "query",
+            "required": false,
+            "description": "Crypto hash of the newer scan. Omit to use the most recent.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Comparison result, or available:false when fewer than two scans exist (the normal state of a new account, not an error).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "available": {
+                      "type": "boolean"
+                    },
+                    "reason": {
+                      "type": "string",
+                      "description": "Present when available is false."
+                    },
+                    "drift": {
+                      "$ref": "#/components/schemas/Drift"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid JWT."
           }
         }
       }

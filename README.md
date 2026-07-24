@@ -66,6 +66,11 @@
   the ability to rewrite history
 - Shareable report links — hand an auditor a URL without giving them an account
 - Cloud dashboard for historical Proof Drills with timestamp verification
+- **Scan-to-scan drift** — what changed since the previous commit: new and
+  removed components, version moves, compliance-posture flips, and above all
+  advisories published against dependencies you have not touched. That last
+  one is the case a point-in-time audit structurally cannot catch, and it is
+  the evidence EU AI Act Article 72 post-market monitoring asks for
 
 #### Verifying a shared report yourself
 

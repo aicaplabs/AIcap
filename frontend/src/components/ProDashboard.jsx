@@ -4,6 +4,7 @@ import { apiFetch } from '../lib/supabase.js';
 import { useCheckout } from '../lib/useCheckout.js';
 import KeyVault from './KeyVault.jsx';
 import HistoryTable from './HistoryTable.jsx';
+import DriftCard from './DriftCard.jsx';
 import AnnexIVPreview from './AnnexIVPreview.jsx';
 import ManageSubscriptionButton from './ManageSubscriptionButton.jsx';
 
@@ -76,6 +77,11 @@ export default function ProDashboard({
           onTokenRefresh={onTokenRefresh}
         />
       </div>
+
+      {/* What changed since the previous scan. Sits above the ledger
+          because "did anything change?" is the question a user opens the
+          dashboard with; the ledger is what they consult afterwards. */}
+      <DriftCard />
 
       <HistoryTable
         records={historyData}

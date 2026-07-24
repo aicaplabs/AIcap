@@ -13,10 +13,10 @@ type AIDependency struct {
 
 // FinOpsFinding represents a cloud cost optimization warning
 type FinOpsFinding struct {
-	Resource    string      `json:"resource"`
-	Severity    string      `json:"severity"`
-	Description string      `json:"description"`
-	Location    string      `json:"location,omitempty"`
+	Resource    string `json:"resource"`
+	Severity    string `json:"severity"`
+	Description string `json:"description"`
+	Location    string `json:"location,omitempty"`
 	// EstimatedCost is set when the scanner could match the resource to
 	// a known GPU instance family. Nil means "we detected a GPU but don't
 	// know the instance type" (typical for k8s nvidia.com/gpu requests
@@ -68,8 +68,8 @@ type FinOpsCostSummary struct {
 	// Spot/preemptible projection (Wave 11). Computed from per-finding
 	// SpotMonthlyUSD fields. Zero when the catalog has no spot
 	// multipliers or every finding lacks a catalog match.
-	TotalSpotMonthlyUSDLow   float64 `json:"totalSpotMonthlyUsdLow,omitempty"`
-	TotalSpotMonthlyUSDHigh  float64 `json:"totalSpotMonthlyUsdHigh,omitempty"`
+	TotalSpotMonthlyUSDLow    float64 `json:"totalSpotMonthlyUsdLow,omitempty"`
+	TotalSpotMonthlyUSDHigh   float64 `json:"totalSpotMonthlyUsdHigh,omitempty"`
 	SpotSavingsMonthlyUSDLow  float64 `json:"spotSavingsMonthlyUsdLow,omitempty"`
 	SpotSavingsMonthlyUSDHigh float64 `json:"spotSavingsMonthlyUsdHigh,omitempty"`
 	SpotDisclaimer            string  `json:"spotDisclaimer,omitempty"`
@@ -110,15 +110,15 @@ type AIBOM struct {
 // rough ceiling — the inference family typically has less raw compute,
 // so the user must validate the swap is functionally equivalent.
 type FinOpsRightsizing struct {
-	Resource              string  `json:"resource"`
-	Location              string  `json:"location,omitempty"`
-	CurrentFamily         string  `json:"currentFamily"`
-	CurrentCloud          string  `json:"currentCloud"`
-	RecommendedFamily     string  `json:"recommendedFamily"`
-	RecommendedAccelerator string `json:"recommendedAccelerator,omitempty"`
-	Rationale             string  `json:"rationale"`
-	EstimatedSavingsLow   float64 `json:"estimatedSavingsMonthlyUsdLow"`
-	EstimatedSavingsHigh  float64 `json:"estimatedSavingsMonthlyUsdHigh"`
+	Resource               string  `json:"resource"`
+	Location               string  `json:"location,omitempty"`
+	CurrentFamily          string  `json:"currentFamily"`
+	CurrentCloud           string  `json:"currentCloud"`
+	RecommendedFamily      string  `json:"recommendedFamily"`
+	RecommendedAccelerator string  `json:"recommendedAccelerator,omitempty"`
+	Rationale              string  `json:"rationale"`
+	EstimatedSavingsLow    float64 `json:"estimatedSavingsMonthlyUsdLow"`
+	EstimatedSavingsHigh   float64 `json:"estimatedSavingsMonthlyUsdHigh"`
 }
 
 // ScannedImage is one container image whose layers were walked
@@ -355,8 +355,89 @@ type CycloneDXProperty struct {
 
 // HFModelResponse structure for HuggingFace Hub API
 type HFModelResponse struct {
-	Id         string `json:"_id"`
-	ModelId    string `json:"modelId"`
-	Tags       []string `json:"tags"`
-	PipelineTag string `json:"pipeline_tag"`
+	Id          string   `json:"_id"`
+	ModelId     string   `json:"modelId"`
+	Tags        []string `json:"tags"`
+	PipelineTag string   `json:"pipeline_tag"`
+}
+
+// --- Scan-to-scan drift (Wave 18) -----------------------------------------
+//
+// The ledger has stored consecutive proof drills since Wave 4, but nothing
+// compared two of them: every scan was an isolated snapshot. Drift is that
+// comparison. It is also the EU AI Act Article 72 hook — providers of
+// high-risk systems must actively collect and review experience with the
+// system over its lifetime, and a per-commit record of what changed is the
+// evidence that obligation asks for.
+
+// DriftEndpoint identifies one side of a comparison.
+type DriftEndpoint struct {
+	CommitSha  string `json:"commitSha,omitempty"`
+	CryptoHash string `json:"cryptoHash,omitempty"`
+	CreatedAt  string `json:"createdAt,omitempty"`
+}
+
+// VersionChange records a component moving between two concrete versions.
+type VersionChange struct {
+	Name        string `json:"name"`
+	Ecosystem   string `json:"ecosystem,omitempty"`
+	FromVersion string `json:"fromVersion"`
+	ToVersion   string `json:"toVersion"`
+}
+
+// DependencyDrift is the component-level delta between two scans.
+type DependencyDrift struct {
+	Added          []AIDependency  `json:"added,omitempty"`
+	Removed        []AIDependency  `json:"removed,omitempty"`
+	VersionChanged []VersionChange `json:"versionChanged,omitempty"`
+}
+
+// AdvisoryDelta reports advisories that appeared against a component
+// between two scans. When the component's version is unchanged, this is
+// the "nobody touched it and it became vulnerable" case — the one a
+// point-in-time audit structurally cannot catch.
+type AdvisoryDelta struct {
+	Component string     `json:"component"`
+	Version   string     `json:"version,omitempty"`
+	Vulns     []LiveVuln `json:"vulns"`
+}
+
+// RiskDrift is the Article 9 register delta between two scans.
+type RiskDrift struct {
+	NewFindings      []RiskFinding   `json:"newFindings,omitempty"`
+	ResolvedFindings []RiskFinding   `json:"resolvedFindings,omitempty"`
+	NewAdvisories    []AdvisoryDelta `json:"newAdvisories,omitempty"`
+}
+
+// ComplianceChange records a posture transition and whether it was a
+// regression.
+type ComplianceChange struct {
+	From      string `json:"from"`
+	To        string `json:"to"`
+	Regressed bool   `json:"regressed"`
+}
+
+// DriftSummary is the headline an alerting rule or dashboard card reads
+// without walking the detail.
+type DriftSummary struct {
+	DependenciesAdded   int `json:"dependenciesAdded"`
+	DependenciesRemoved int `json:"dependenciesRemoved"`
+	VersionsChanged     int `json:"versionsChanged"`
+	NewFindings         int `json:"newFindings"`
+	ResolvedFindings    int `json:"resolvedFindings"`
+	NewAdvisories       int `json:"newAdvisories"`
+	HighRiskAdded       int `json:"highRiskAdded"`
+	// Regressed is deliberately broad — a worse posture, a new high-risk
+	// component, or a new advisory against something already present.
+	Regressed bool `json:"regressed"`
+}
+
+// Drift is the full comparison between two proof drills.
+type Drift struct {
+	From             DriftEndpoint     `json:"from"`
+	To               DriftEndpoint     `json:"to"`
+	Dependencies     DependencyDrift   `json:"dependencies"`
+	Risk             RiskDrift         `json:"risk"`
+	ComplianceChange *ComplianceChange `json:"complianceChange,omitempty"`
+	Summary          DriftSummary      `json:"summary"`
 }

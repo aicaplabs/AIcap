@@ -487,17 +487,107 @@ func remediationAdvice(vulns []types.LiveVuln) string {
 	fixes := []string{}
 	seen := map[string]bool{}
 	for _, v := range vulns {
-		if v.FixedVersion != "" && !seen[v.FixedVersion] {
-			seen[v.FixedVersion] = true
-			fixes = append(fixes, v.FixedVersion)
+		// Skip anything that isn't version-shaped. OSV records a `fixed`
+		// event per affected range, and for projects that publish
+		// source-range advisories that value is a git commit SHA. Telling
+		// an engineer to "upgrade to
+		// 432117cd1f59c76d97da2eaff55a7d758301dbc7" is not remediation
+		// advice, and a heavily-advised package produced a wall of them.
+		if !looksLikeVersion(v.FixedVersion) || seen[v.FixedVersion] {
+			continue
 		}
+		seen[v.FixedVersion] = true
+		fixes = append(fixes, v.FixedVersion)
 	}
 	if len(fixes) == 0 {
 		return "No fixed version is published for the advisories affecting this component. " +
 			"Assess exploitability, apply a compensating control, or plan a replacement."
 	}
-	sort.Strings(fixes)
-	return "Upgrade to a fixed version (" + strings.Join(fixes, " / ") + ") and re-run the scan."
+	// One target, not a list. Advisories against a long-lived package fix
+	// on several release branches, and enumerating every one of them
+	// buries the actionable answer. The highest fixed version clears all
+	// of them, which is the single thing the reader needs to do.
+	return "Upgrade to " + highestVersion(fixes) + " or later, then re-run the scan."
+}
+
+// looksLikeVersion filters OSV `fixed` values down to release versions.
+// A version starts with a digit and is short; a git SHA is 40 hex
+// characters and is not something anyone can act on.
+func looksLikeVersion(v string) bool {
+	if v == "" || len(v) > 32 {
+		return false
+	}
+	if v[0] < '0' || v[0] > '9' {
+		return false
+	}
+	// All-hex and long enough to be a truncated SHA rather than a version.
+	if len(v) >= 12 && !strings.ContainsAny(v, ".") {
+		return false
+	}
+	return true
+}
+
+// highestVersion returns the greatest version in the list, comparing
+// numeric components left to right.
+//
+// Deliberately not a full semver implementation: these strings come from
+// an external feed in whatever shape upstream publishes, and pre-release
+// ordering rules would add failure modes without changing the answer for
+// the case that matters — picking the newest of several patch releases.
+// Ties on the numeric prefix fall back to string order so the result is
+// always deterministic.
+func highestVersion(versions []string) string {
+	best := versions[0]
+	for _, v := range versions[1:] {
+		if compareVersions(v, best) > 0 {
+			best = v
+		}
+	}
+	return best
+}
+
+func compareVersions(a, b string) int {
+	aParts, bParts := versionNumbers(a), versionNumbers(b)
+	for i := 0; i < len(aParts) || i < len(bParts); i++ {
+		var x, y int
+		if i < len(aParts) {
+			x = aParts[i]
+		}
+		if i < len(bParts) {
+			y = bParts[i]
+		}
+		if x != y {
+			if x > y {
+				return 1
+			}
+			return -1
+		}
+	}
+	return strings.Compare(a, b)
+}
+
+// versionNumbers extracts the numeric components of a version string,
+// ignoring separators and any trailing qualifier ("1.2.0rc1" -> 1,2,0,1).
+func versionNumbers(v string) []int {
+	var out []int
+	cur := -1
+	for _, r := range v {
+		if r >= '0' && r <= '9' {
+			if cur < 0 {
+				cur = 0
+			}
+			cur = cur*10 + int(r-'0')
+			continue
+		}
+		if cur >= 0 {
+			out = append(out, cur)
+			cur = -1
+		}
+	}
+	if cur >= 0 {
+		out = append(out, cur)
+	}
+	return out
 }
 
 // vulnIDs projects the advisory list onto the legacy LiveVulnIDs field,

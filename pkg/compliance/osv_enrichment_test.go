@@ -451,3 +451,75 @@ func TestGenerateAnnexIVMarkdownWithRegister_DefaultsToAnchored(t *testing.T) {
 		t.Error("save-proof render lost its anchored § 5")
 	}
 }
+
+// --- Remediation advice quality (found against live OSV data) ------------
+
+func TestRemediationAdvice_IgnoresGitShas(t *testing.T) {
+	// OSV records a `fixed` event per affected range, and projects that
+	// publish source-range advisories put a git commit SHA there. Running
+	// against real data for vllm produced a mitigation listing twenty-odd
+	// "versions", several of them 40-character SHAs.
+	advice := remediationAdvice([]types.LiveVuln{
+		{ID: "a", FixedVersion: "432117cd1f59c76d97da2eaff55a7d758301dbc7"},
+		{ID: "b", FixedVersion: "0.11.0"},
+	})
+	if strings.Contains(advice, "432117cd") {
+		t.Errorf("advice names a git SHA as an upgrade target: %q", advice)
+	}
+	if !strings.Contains(advice, "0.11.0") {
+		t.Errorf("advice dropped the real version: %q", advice)
+	}
+}
+
+func TestRemediationAdvice_NamesOneTargetNotEveryBranch(t *testing.T) {
+	// A long-lived package gets advisories fixed on several release
+	// branches. Enumerating all of them buries the actionable answer;
+	// the highest version clears every one.
+	advice := remediationAdvice([]types.LiveVuln{
+		{ID: "a", FixedVersion: "0.7.0"},
+		{ID: "b", FixedVersion: "0.24.0"},
+		{ID: "c", FixedVersion: "0.10.1.1"},
+		{ID: "d", FixedVersion: "0.9.0"},
+	})
+	if !strings.Contains(advice, "0.24.0") {
+		t.Errorf("advice = %q, want the highest fixed version", advice)
+	}
+	if strings.Contains(advice, "0.7.0") || strings.Contains(advice, "0.9.0") {
+		t.Errorf("advice enumerates superseded branches: %q", advice)
+	}
+}
+
+func TestHighestVersion_ComparesNumerically(t *testing.T) {
+	// String sort would put 0.9.0 above 0.24.0 — the classic failure.
+	cases := []struct {
+		in   []string
+		want string
+	}{
+		{[]string{"0.9.0", "0.24.0"}, "0.24.0"},
+		{[]string{"0.10.1.1", "0.10.1"}, "0.10.1.1"},
+		{[]string{"1.2.3", "1.10.0", "1.9.9"}, "1.10.0"},
+		{[]string{"2.0.0"}, "2.0.0"},
+		{[]string{"4.44.0", "4.48.1"}, "4.48.1"},
+	}
+	for _, c := range cases {
+		if got := highestVersion(c.in); got != c.want {
+			t.Errorf("highestVersion(%v) = %q, want %q", c.in, got, c.want)
+		}
+	}
+}
+
+func TestLooksLikeVersion(t *testing.T) {
+	for _, v := range []string{"1.0", "0.24.0", "4.48.1", "2.6.0", "1.40.0rc1"} {
+		if !looksLikeVersion(v) {
+			t.Errorf("looksLikeVersion(%q) = false, want true", v)
+		}
+	}
+	for _, v := range []string{
+		"", "432117cd1f59c76d97da2eaff55a7d758301dbc7", "d3d6bb13fb62da3234addf65",
+		"master", "v-next",
+	} {
+		if looksLikeVersion(v) {
+			t.Errorf("looksLikeVersion(%q) = true, want false", v)
+		}
+	}
+}
