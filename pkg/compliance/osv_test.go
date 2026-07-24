@@ -83,12 +83,12 @@ func TestOSVClient_Lookup_PassesThroughVulnIDs(t *testing.T) {
 	if client == nil {
 		t.Fatal("NewOSVClient returned nil with disable=false")
 	}
-	ids, err := client.Lookup(context.Background(), "transformers", "PyPI", "4.30.0")
+	vulns, err := client.Lookup(context.Background(), "transformers", "PyPI", "4.30.0")
 	if err != nil {
 		t.Fatalf("Lookup: %v", err)
 	}
-	if len(ids) != 2 || ids[0] != "CVE-2024-XXXX" {
-		t.Errorf("ids = %v, want [CVE-2024-XXXX, GHSA-yyyy-zzzz]", ids)
+	if len(vulns) != 2 || vulns[0].ID != "CVE-2024-XXXX" || vulns[1].ID != "GHSA-yyyy-zzzz" {
+		t.Errorf("vulns = %+v, want IDs [CVE-2024-XXXX, GHSA-yyyy-zzzz]", vulns)
 	}
 }
 
@@ -176,12 +176,22 @@ func TestEnrichWithOSV_AttachesIDsToMatchingFinding(t *testing.T) {
 	}
 }
 
-func TestEnrichWithOSV_NoMatchingFinding_LeavesEmpty(t *testing.T) {
-	// OSV returns vulns for a dep that isn't in the catalog -> finding
-	// list is empty -> nothing to enrich -> no panic, no extra
-	// findings created.
+func TestEnrichWithOSV_UncataloguedDepWithAdvisory_RaisesFinding(t *testing.T) {
+	// Contract inverted in Wave 16. This test previously asserted that a
+	// dependency absent from the static catalog produced no finding even
+	// when OSV reported a vulnerability against it — which meant the
+	// register structurally could not report a real vulnerability in
+	// anything the 10-entry catalog had not anticipated.
 	server := newMockOSV(t, func(q osvQuery) []osvVuln {
-		return []osvVuln{{ID: "CVE-2024-X"}}
+		return []osvVuln{{
+			ID:               "CVE-2024-X",
+			Summary:          "Deserialisation flaw",
+			DatabaseSpecific: osvDBSpecific{Severity: "HIGH"},
+			Affected: []osvAffected{{
+				Package: osvPackage{Name: "obscure-not-in-catalog", Ecosystem: "PyPI"},
+				Ranges:  []osvRange{{Type: "ECOSYSTEM", Events: []osvEvent{{Introduced: "0"}, {Fixed: "1.2.0"}}}},
+			}},
+		}}
 	})
 	t.Cleanup(server.Close)
 	withOSVURL(t, server.URL)
@@ -191,10 +201,35 @@ func TestEnrichWithOSV_NoMatchingFinding_LeavesEmpty(t *testing.T) {
 	}}
 	register := ComputeRiskRegister(bom)
 	if len(register.Findings) != 0 {
-		t.Fatalf("expected 0 findings for unknown dep, got %d", len(register.Findings))
+		t.Fatalf("setup: expected 0 catalog findings for unknown dep, got %d", len(register.Findings))
 	}
-	// Should not panic.
+
 	EnrichWithOSV(context.Background(), &register, bom, NewOSVClient())
+
+	if len(register.Findings) != 1 {
+		t.Fatalf("findings = %d, want 1 raised from the live advisory", len(register.Findings))
+	}
+	f := register.Findings[0]
+	if f.Component != "obscure-not-in-catalog" {
+		t.Errorf("component = %q", f.Component)
+	}
+	if f.Source != "osv" {
+		t.Errorf("source = %q, want osv — a reader must be able to tell a live-advisory finding from a curated one", f.Source)
+	}
+	if f.Severity != "High" {
+		t.Errorf("severity = %q, want High (advisory says HIGH)", f.Severity)
+	}
+	if len(f.LiveVulns) != 1 || f.LiveVulns[0].FixedVersion != "1.2.0" {
+		t.Errorf("LiveVulns = %+v, want one advisory fixed in 1.2.0", f.LiveVulns)
+	}
+	if !strings.Contains(f.Mitigation, "1.2.0") {
+		t.Errorf("mitigation = %q, want it to name the fixed version", f.Mitigation)
+	}
+	// Summary counts must include the new row, since that header is what
+	// an auditor reads before the table.
+	if register.Summary.Total != 1 || register.Summary.High != 1 {
+		t.Errorf("summary = %+v, want total 1 / high 1", register.Summary)
+	}
 }
 
 func TestEnrichWithOSV_NilClient_NoOp(t *testing.T) {

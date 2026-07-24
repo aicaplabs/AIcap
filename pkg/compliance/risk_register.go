@@ -110,6 +110,7 @@ func ComputeRiskRegister(bom types.AIBOM) types.RiskRegister {
 			Mitigation:      entry.Mitigation,
 			Rationale:       entry.Rationale,
 			Status:          "open",
+			Source:          "catalog",
 		})
 		switch severity {
 		case "High":
@@ -132,13 +133,17 @@ func ComputeRiskRegister(bom types.AIBOM) types.RiskRegister {
 // Wave 7f: each row's last column now lists live OSV-sourced
 // CVE / GHSA IDs when present, so auditors see both the static
 // catalog mapping and the live vulnerability surface in one table.
+//
+// Wave 16: a Source column distinguishes a curated catalog assessment
+// from one raised by a live advisory alone — those are different kinds
+// of claim and a reader is entitled to tell them apart.
 func RenderRiskRegisterMarkdown(reg types.RiskRegister) string {
 	if len(reg.Findings) == 0 {
 		return ""
 	}
 	var sb strings.Builder
-	sb.WriteString("| Component | Severity | OWASP ML Top 10 | MITRE ATLAS | AI Act | Status | Live CVE/GHSA |\n")
-	sb.WriteString("|---|---|---|---|---|---|---|\n")
+	sb.WriteString("| Component | Severity | OWASP ML Top 10 | MITRE ATLAS | AI Act | Status | Source | Live CVE/GHSA |\n")
+	sb.WriteString("|---|---|---|---|---|---|---|---|\n")
 	for _, f := range reg.Findings {
 		atlas := strings.Join(f.MitreAtlas, ", ")
 		if atlas == "" {
@@ -148,6 +153,13 @@ func RenderRiskRegisterMarkdown(reg types.RiskRegister) string {
 		liveIDs := "—"
 		if len(f.LiveVulnIDs) > 0 {
 			liveIDs = "`" + strings.Join(f.LiveVulnIDs, "`, `") + "`"
+		}
+		source := f.Source
+		switch source {
+		case "osv":
+			source = "live advisory"
+		case "", "catalog":
+			source = "catalog"
 		}
 		sb.WriteString("| `")
 		sb.WriteString(f.Component)
@@ -167,8 +179,68 @@ func RenderRiskRegisterMarkdown(reg types.RiskRegister) string {
 		sb.WriteString(" | ")
 		sb.WriteString(f.Status)
 		sb.WriteString(" | ")
+		sb.WriteString(source)
+		sb.WriteString(" | ")
 		sb.WriteString(liveIDs)
 		sb.WriteString(" |\n")
+	}
+	return sb.String()
+}
+
+// RenderLiveAdvisoriesMarkdown emits the per-advisory detail block that
+// sits under the register table: what each advisory is, how the
+// publishing database rated it, and which version fixes it.
+//
+// This exists because the table answers "is there a problem?" and the
+// person who has to act needs "what do I change?". The fixed version is
+// the single most actionable field OSV returns, and until Wave 16 it was
+// parsed and thrown away.
+//
+// Returns "" when no finding carries live advisory detail, so the caller
+// can omit the section entirely rather than print an empty heading.
+func RenderLiveAdvisoriesMarkdown(reg types.RiskRegister) string {
+	var sb strings.Builder
+	for _, f := range reg.Findings {
+		if len(f.LiveVulns) == 0 {
+			continue
+		}
+		sb.WriteString("- **`")
+		sb.WriteString(f.Component)
+		if f.Version != "" {
+			sb.WriteString("` v")
+			sb.WriteString(f.Version)
+		} else {
+			sb.WriteString("`")
+		}
+		sb.WriteString("**\n")
+		for _, v := range f.LiveVulns {
+			sb.WriteString("  - `")
+			sb.WriteString(v.ID)
+			sb.WriteString("`")
+			if v.Severity != "" {
+				sb.WriteString(" — ")
+				sb.WriteString(v.Severity)
+			}
+			if v.Summary != "" {
+				sb.WriteString(" — ")
+				sb.WriteString(v.Summary)
+			}
+			if v.FixedVersion != "" {
+				sb.WriteString(" — **fixed in ")
+				sb.WriteString(v.FixedVersion)
+				sb.WriteString("**")
+			} else {
+				// Stated explicitly: an advisory with no published fix
+				// is a different remediation decision, not missing data.
+				sb.WriteString(" — no fixed version published")
+			}
+			sb.WriteString("\n")
+			if v.CVSSVector != "" {
+				sb.WriteString("    - CVSS vector (as published): `")
+				sb.WriteString(v.CVSSVector)
+				sb.WriteString("`\n")
+			}
+		}
 	}
 	return sb.String()
 }

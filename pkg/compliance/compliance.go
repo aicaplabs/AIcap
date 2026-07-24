@@ -228,6 +228,19 @@ func GenerateAnnexIVMarkdownWithRegister(bom types.AIBOM, register types.RiskReg
 			sb.WriteString(fmt.Sprintf("- **%s**: %s\n", f.Component, f.Mitigation))
 		}
 		sb.WriteString("\n")
+
+		// Live advisory detail (Wave 16). The table above answers "is
+		// there a problem"; this answers "what do I change", which is
+		// the question the engineer reading it actually has. Omitted
+		// entirely when enrichment didn't run or returned nothing, so
+		// an empty heading never implies a clean result.
+		if advisories := RenderLiveAdvisoriesMarkdown(register); advisories != "" {
+			sb.WriteString("**Live advisories (OSV.dev, at scan time):**\n\n")
+			sb.WriteString(advisories)
+			sb.WriteString("\nSeverity labels and CVSS vectors are quoted as published by the ")
+			sb.WriteString("advisory database; AIcap does not recompute them. Advisories reflect ")
+			sb.WriteString("the state of OSV.dev at the moment of this scan.\n\n")
+		}
 	} else {
 		sb.WriteString("No catalogued AI risks detected. (Catalog scope is intentionally MVP — see pkg/compliance/vulns.json.)\n\n")
 	}

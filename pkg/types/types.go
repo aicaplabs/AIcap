@@ -222,7 +222,49 @@ type RiskFinding struct {
 	// pulled live from OSV.dev for this dep + version. Empty when
 	// OSV is disabled or returned no matches; the static catalog
 	// fields above still apply.
+	//
+	// Retained alongside LiveVulns (Wave 16) because historical
+	// proof_drills rows carry this shape in their persisted JSONB and
+	// must keep deserialising. New code should read LiveVulns.
 	LiveVulnIDs []string `json:"liveVulnIds,omitempty"`
+
+	// LiveVulns (Wave 16) is the full advisory record behind each ID.
+	// An identifier alone tells an auditor a problem exists; the fixed
+	// version tells an engineer what to do about it, which is the
+	// difference between a report that gets read and one that gets
+	// filed.
+	LiveVulns []LiveVuln `json:"liveVulns,omitempty"`
+
+	// Source records where this finding came from: "catalog" for a
+	// curated vulns.json entry, "osv" for one raised purely by a live
+	// advisory. Auditors should be able to tell a considered risk
+	// assessment from a machine-generated one.
+	Source string `json:"source,omitempty"`
+}
+
+// LiveVuln is one advisory as reported by OSV.dev for a specific
+// package version.
+//
+// Severity is deliberately carried as the label the advisory database
+// itself publishes ("HIGH", "MODERATE") plus the raw CVSS vector, and
+// never as a computed numeric score. Deriving a score from a vector
+// requires implementing the CVSS specification, and a compliance report
+// asserting a severity it calculated slightly wrong is worse than one
+// quoting the source verbatim.
+type LiveVuln struct {
+	ID      string   `json:"id"`
+	Aliases []string `json:"aliases,omitempty"`
+	Summary string   `json:"summary,omitempty"`
+	// Severity is the advisory's own label, e.g. "HIGH", "MODERATE".
+	Severity string `json:"severity,omitempty"`
+	// CVSSVector is the raw vector string, e.g.
+	// "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H". Quoted, not parsed.
+	CVSSVector string `json:"cvssVector,omitempty"`
+	// FixedVersion is the earliest version the advisory records as
+	// fixed. Empty when the advisory has no fix published — which is
+	// itself worth showing, since "no fix available" changes the
+	// remediation decision.
+	FixedVersion string `json:"fixedVersion,omitempty"`
 }
 
 // RiskRegister is the Article 9 risk-management state for one
