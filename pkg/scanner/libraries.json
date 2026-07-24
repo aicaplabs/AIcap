@@ -1,138 +1,618 @@
 {
-  "openai": { "risk": "High", "desc": "External LLM API Call (OpenAI)" },
-  "anthropic": { "risk": "High", "desc": "External LLM API Call (Anthropic)" },
-  "google-generativeai": { "risk": "High", "desc": "External LLM API Call (Google Gemini)" },
-  "google-genai": { "risk": "High", "desc": "External LLM API Call (Google Gen AI SDK)" },
-  "google-cloud-aiplatform": { "risk": "High", "desc": "Google Vertex AI Platform SDK" },
-  "vertexai": { "risk": "High", "desc": "Google Vertex AI SDK" },
-  "cohere": { "risk": "High", "desc": "External LLM API Call (Cohere)" },
-  "mistralai": { "risk": "High", "desc": "External LLM API Call (Mistral)" },
-  "groq": { "risk": "High", "desc": "External LLM API Call (Groq)" },
-  "together": { "risk": "High", "desc": "External LLM API Call (Together AI)" },
-  "replicate": { "risk": "High", "desc": "Hosted Model Inference API (Replicate)" },
-  "fireworks-ai": { "risk": "High", "desc": "External LLM API Call (Fireworks AI)" },
-  "cerebras-cloud-sdk": { "risk": "High", "desc": "External LLM API Call (Cerebras)" },
-  "deepseek": { "risk": "High", "desc": "External LLM API Call (DeepSeek)" },
-  "dashscope": { "risk": "High", "desc": "External LLM API Call (Alibaba DashScope/Qwen)" },
-  "xai-sdk": { "risk": "High", "desc": "External LLM API Call (xAI Grok)" },
-  "litellm": { "risk": "High", "desc": "Multi-Provider LLM Gateway — routes to arbitrary external model APIs" },
-  "openrouter": { "risk": "High", "desc": "Multi-Provider LLM Router (OpenRouter)" },
-  "azure-ai-inference": { "risk": "High", "desc": "Azure AI Model Inference SDK" },
-  "azure-ai-ml": { "risk": "High", "desc": "Azure Machine Learning SDK" },
-  "sagemaker": { "risk": "High", "desc": "AWS SageMaker SDK (training / hosted inference)" },
-  "tiktoken": { "risk": "Low", "desc": "OpenAI Tokenizer" },
-  "tokenizers": { "risk": "Low", "desc": "Hugging Face Tokenizers" },
-
-  "langchain": { "risk": "Medium", "desc": "LLM Orchestration Framework" },
-  "langchain-core": { "risk": "Medium", "desc": "LLM Orchestration Framework (LangChain core)" },
-  "langchain-community": { "risk": "Medium", "desc": "LLM Orchestration Framework (LangChain community integrations)" },
-  "langgraph": { "risk": "Medium", "desc": "Stateful Agent Orchestration (LangGraph)" },
-  "langsmith": { "risk": "Low", "desc": "LLM Tracing & Evaluation (LangSmith) — transmits prompts to a third party" },
-  "llama-index": { "risk": "Medium", "desc": "LLM Data Framework (LlamaIndex)" },
-  "llamaindex": { "risk": "Medium", "desc": "LLM Data Framework (LlamaIndex)" },
-  "haystack-ai": { "risk": "Medium", "desc": "LLM/RAG Orchestration Framework (Haystack)" },
-  "dspy": { "risk": "Medium", "desc": "Declarative LLM Programming Framework (DSPy)" },
-  "dspy-ai": { "risk": "Medium", "desc": "Declarative LLM Programming Framework (DSPy)" },
-  "instructor": { "risk": "Medium", "desc": "Structured LLM Output Library" },
-  "outlines": { "risk": "Medium", "desc": "Constrained LLM Generation" },
-  "guidance": { "risk": "Medium", "desc": "Constrained LLM Generation (Guidance)" },
-  "pydantic-ai": { "risk": "Medium", "desc": "Typed Agent Framework (PydanticAI)" },
-  "autogen": { "risk": "Medium", "desc": "Multi-Agent Conversation Framework" },
-  "autogen-agentchat": { "risk": "Medium", "desc": "Multi-Agent Conversation Framework (AutoGen)" },
-  "crewai": { "risk": "Medium", "desc": "AI Agent Orchestration" },
-  "smolagents": { "risk": "Medium", "desc": "Lightweight Agent Framework (Hugging Face)" },
-  "openai-agents": { "risk": "Medium", "desc": "OpenAI Agents SDK" },
-  "semantic-kernel": { "risk": "Medium", "desc": "Microsoft AI SDK" },
-  "mcp": { "risk": "Medium", "desc": "Model Context Protocol SDK — exposes tools/data to external models" },
-  "fastmcp": { "risk": "Medium", "desc": "Model Context Protocol server framework" },
-
-  "torch": { "risk": "High", "desc": "PyTorch Machine Learning Framework" },
-  "torchvision": { "risk": "High", "desc": "PyTorch Computer Vision Library" },
-  "torchaudio": { "risk": "High", "desc": "PyTorch Audio Library" },
-  "tensorflow": { "risk": "High", "desc": "TensorFlow Machine Learning Framework" },
-  "keras": { "risk": "High", "desc": "Deep Learning API" },
-  "jax": { "risk": "High", "desc": "High-Performance ML Framework (Google)" },
-  "flax": { "risk": "High", "desc": "Neural Network Library for JAX" },
-  "scikit-learn": { "risk": "Low", "desc": "Traditional Machine Learning Library" },
-  "xgboost": { "risk": "Low", "desc": "Gradient Boosting Machine Learning Library" },
-  "lightgbm": { "risk": "Low", "desc": "Gradient Boosting Framework" },
-  "catboost": { "risk": "Low", "desc": "Gradient Boosting Framework (CatBoost)" },
-  "statsmodels": { "risk": "Low", "desc": "Statistical Modelling Library" },
-  "transformers": { "risk": "High", "desc": "Hugging Face Transformers" },
-  "diffusers": { "risk": "High", "desc": "Hugging Face Diffusion Models" },
-  "sentence-transformers": { "risk": "High", "desc": "Sentence Embedding Models (Hugging Face)" },
-  "datasets": { "risk": "Low", "desc": "Hugging Face Datasets Library" },
-  "huggingface-hub": { "risk": "High", "desc": "Hugging Face Model/Dataset Hub Client — downloads third-party weights" },
-  "huggingface_hub": { "risk": "High", "desc": "Hugging Face Model/Dataset Hub Client — downloads third-party weights" },
-  "timm": { "risk": "High", "desc": "PyTorch Image Models (pretrained vision weights)" },
-  "accelerate": { "risk": "Medium", "desc": "Distributed Training/Inference Launcher (Hugging Face)" },
-  "peft": { "risk": "High", "desc": "Parameter-Efficient Fine-Tuning" },
-  "trl": { "risk": "High", "desc": "Transformer Reinforcement Learning (RLHF/DPO fine-tuning)" },
-  "bitsandbytes": { "risk": "Medium", "desc": "Model Quantisation Library" },
-  "deepspeed": { "risk": "Medium", "desc": "Distributed Training Optimisation (DeepSpeed)" },
-  "unsloth": { "risk": "High", "desc": "Accelerated LLM Fine-Tuning" },
-  "spacy": { "risk": "Low", "desc": "NLP Pipeline Library" },
-  "nltk": { "risk": "Low", "desc": "Natural Language Toolkit" },
-  "opencv-python": { "risk": "Medium", "desc": "Computer Vision Library" },
-  "ultralytics": { "risk": "High", "desc": "YOLO Object Detection Models" },
-  "openai-whisper": { "risk": "High", "desc": "Speech Recognition Model (Whisper)" },
-  "faster-whisper": { "risk": "High", "desc": "Speech Recognition Model (Whisper, CTranslate2)" },
-
-  "vllm": { "risk": "High", "desc": "High-Throughput LLM Inference Engine" },
-  "ollama": { "risk": "High", "desc": "Local LLM Runner" },
-  "llama-cpp-python": { "risk": "High", "desc": "Local GGUF Model Inference (llama.cpp)" },
-  "onnxruntime": { "risk": "High", "desc": "ONNX Model Inference Runtime" },
-  "onnxruntime-gpu": { "risk": "High", "desc": "ONNX Model Inference Runtime (GPU)" },
-  "tritonclient": { "risk": "High", "desc": "NVIDIA Triton Inference Server Client" },
-  "ctranslate2": { "risk": "High", "desc": "Optimised Transformer Inference Engine" },
-  "optimum": { "risk": "Medium", "desc": "Hugging Face Model Optimisation/Export" },
-  "ray": { "risk": "Medium", "desc": "Distributed Compute Framework (commonly Ray Serve/Train for ML)" },
-  "bentoml": { "risk": "Medium", "desc": "Model Serving Framework" },
-  "kserve": { "risk": "Medium", "desc": "Kubernetes Model Serving" },
-
-  "pinecone-client": { "risk": "Low", "desc": "Vector Database Client (Pinecone)" },
-  "pinecone": { "risk": "Low", "desc": "Vector Database Client (Pinecone)" },
-  "qdrant-client": { "risk": "Low", "desc": "Vector Database Client (Qdrant)" },
-  "chromadb": { "risk": "Low", "desc": "Vector Database (Chroma)" },
-  "weaviate-client": { "risk": "Low", "desc": "Vector Database Client (Weaviate)" },
-  "faiss-cpu": { "risk": "Low", "desc": "Vector Similarity Search (FAISS)" },
-  "faiss-gpu": { "risk": "Low", "desc": "Vector Similarity Search (FAISS, GPU)" },
-  "pgvector": { "risk": "Low", "desc": "Postgres Vector Extension Client" },
-  "lancedb": { "risk": "Low", "desc": "Vector Database (LanceDB)" },
-  "milvus": { "risk": "Low", "desc": "Vector Database (Milvus)" },
-
-  "mlflow": { "risk": "Medium", "desc": "ML Lifecycle Management" },
-  "wandb": { "risk": "Medium", "desc": "Experiment Tracking (Weights & Biases) — transmits run data to a third party" },
-  "dvc": { "risk": "Low", "desc": "Data/Model Version Control" },
-  "evidently": { "risk": "Low", "desc": "ML Model Monitoring & Drift Detection" },
-  "deepchecks": { "risk": "Low", "desc": "ML Model Validation & Testing" },
-  "great-expectations": { "risk": "Low", "desc": "Data Quality Validation" },
-
-  "@anthropic-ai/sdk": { "risk": "High", "desc": "External LLM API Call (Anthropic, Node.js)" },
-  "@google/generative-ai": { "risk": "High", "desc": "External LLM API Call (Google Gemini, Node.js)" },
-  "@google/genai": { "risk": "High", "desc": "External LLM API Call (Google Gen AI SDK, Node.js)" },
-  "@mistralai/mistralai": { "risk": "High", "desc": "External LLM API Call (Mistral, Node.js)" },
-  "cohere-ai": { "risk": "High", "desc": "External LLM API Call (Cohere, Node.js)" },
-  "groq-sdk": { "risk": "High", "desc": "External LLM API Call (Groq, Node.js)" },
-  "@aws-sdk/client-bedrock-runtime": { "risk": "High", "desc": "AWS Bedrock Model Invocation (Node.js)" },
-  "@azure/openai": { "risk": "High", "desc": "Azure OpenAI Client (Node.js)" },
-  "ai": { "risk": "High", "desc": "Vercel AI SDK — streaming LLM calls to external providers" },
-  "@ai-sdk/openai": { "risk": "High", "desc": "Vercel AI SDK provider (OpenAI)" },
-  "@ai-sdk/anthropic": { "risk": "High", "desc": "Vercel AI SDK provider (Anthropic)" },
-  "@ai-sdk/google": { "risk": "High", "desc": "Vercel AI SDK provider (Google)" },
-  "@langchain/core": { "risk": "Medium", "desc": "LLM Orchestration Framework (LangChain, Node.js)" },
-  "@langchain/openai": { "risk": "High", "desc": "LangChain provider (OpenAI, Node.js)" },
-  "@langchain/anthropic": { "risk": "High", "desc": "LangChain provider (Anthropic, Node.js)" },
-  "@langchain/community": { "risk": "Medium", "desc": "LangChain community integrations (Node.js)" },
-  "@huggingface/inference": { "risk": "High", "desc": "Hugging Face Inference API Client (Node.js)" },
-  "@huggingface/transformers": { "risk": "High", "desc": "Transformers.js — in-process model inference" },
-  "@xenova/transformers": { "risk": "High", "desc": "Transformers.js — in-process model inference" },
-  "@modelcontextprotocol/sdk": { "risk": "Medium", "desc": "Model Context Protocol SDK — exposes tools/data to external models" },
-  "onnxruntime-node": { "risk": "High", "desc": "ONNX Model Inference Runtime (Node.js)" },
-  "onnxruntime-web": { "risk": "High", "desc": "ONNX Model Inference Runtime (browser)" },
-  "@tensorflow/tfjs": { "risk": "High", "desc": "TensorFlow.js Machine Learning Framework" },
-  "@tensorflow/tfjs-node": { "risk": "High", "desc": "TensorFlow.js Machine Learning Framework (Node.js)" },
-  "@pinecone-database/pinecone": { "risk": "Low", "desc": "Vector Database Client (Pinecone, Node.js)" },
-  "@qdrant/js-client-rest": { "risk": "Low", "desc": "Vector Database Client (Qdrant, Node.js)" },
-  "chromadb-default-embed": { "risk": "Low", "desc": "Chroma default embedding function" }
+  "openai": {
+    "risk": "High",
+    "desc": "External LLM API Call (OpenAI)"
+  },
+  "anthropic": {
+    "risk": "High",
+    "desc": "External LLM API Call (Anthropic)"
+  },
+  "google-generativeai": {
+    "risk": "High",
+    "desc": "External LLM API Call (Google Gemini)"
+  },
+  "google-genai": {
+    "risk": "High",
+    "desc": "External LLM API Call (Google Gen AI SDK)"
+  },
+  "google-cloud-aiplatform": {
+    "risk": "High",
+    "desc": "Google Vertex AI Platform SDK"
+  },
+  "vertexai": {
+    "risk": "High",
+    "desc": "Google Vertex AI SDK"
+  },
+  "cohere": {
+    "risk": "High",
+    "desc": "External LLM API Call (Cohere)"
+  },
+  "mistralai": {
+    "risk": "High",
+    "desc": "External LLM API Call (Mistral)"
+  },
+  "groq": {
+    "risk": "High",
+    "desc": "External LLM API Call (Groq)"
+  },
+  "together": {
+    "risk": "High",
+    "desc": "External LLM API Call (Together AI)"
+  },
+  "replicate": {
+    "risk": "High",
+    "desc": "Hosted Model Inference API (Replicate)"
+  },
+  "fireworks-ai": {
+    "risk": "High",
+    "desc": "External LLM API Call (Fireworks AI)"
+  },
+  "cerebras-cloud-sdk": {
+    "risk": "High",
+    "desc": "External LLM API Call (Cerebras)"
+  },
+  "deepseek": {
+    "risk": "High",
+    "desc": "External LLM API Call (DeepSeek)"
+  },
+  "dashscope": {
+    "risk": "High",
+    "desc": "External LLM API Call (Alibaba DashScope/Qwen)"
+  },
+  "xai-sdk": {
+    "risk": "High",
+    "desc": "External LLM API Call (xAI Grok)"
+  },
+  "litellm": {
+    "risk": "High",
+    "desc": "Multi-Provider LLM Gateway — routes to arbitrary external model APIs"
+  },
+  "openrouter": {
+    "risk": "High",
+    "desc": "Multi-Provider LLM Router (OpenRouter)"
+  },
+  "azure-ai-inference": {
+    "risk": "High",
+    "desc": "Azure AI Model Inference SDK"
+  },
+  "azure-ai-ml": {
+    "risk": "High",
+    "desc": "Azure Machine Learning SDK"
+  },
+  "sagemaker": {
+    "risk": "High",
+    "desc": "AWS SageMaker SDK (training / hosted inference)"
+  },
+  "tiktoken": {
+    "risk": "Low",
+    "desc": "OpenAI Tokenizer"
+  },
+  "tokenizers": {
+    "risk": "Low",
+    "desc": "Hugging Face Tokenizers"
+  },
+  "langchain": {
+    "risk": "Medium",
+    "desc": "LLM Orchestration Framework"
+  },
+  "langchain-core": {
+    "risk": "Medium",
+    "desc": "LLM Orchestration Framework (LangChain core)"
+  },
+  "langchain-community": {
+    "risk": "Medium",
+    "desc": "LLM Orchestration Framework (LangChain community integrations)"
+  },
+  "langgraph": {
+    "risk": "Medium",
+    "desc": "Stateful Agent Orchestration (LangGraph)"
+  },
+  "langsmith": {
+    "risk": "Low",
+    "desc": "LLM Tracing & Evaluation (LangSmith) — transmits prompts to a third party"
+  },
+  "llama-index": {
+    "risk": "Medium",
+    "desc": "LLM Data Framework (LlamaIndex)"
+  },
+  "llamaindex": {
+    "risk": "Medium",
+    "desc": "LLM Data Framework (LlamaIndex)"
+  },
+  "haystack-ai": {
+    "risk": "Medium",
+    "desc": "LLM/RAG Orchestration Framework (Haystack)"
+  },
+  "dspy": {
+    "risk": "Medium",
+    "desc": "Declarative LLM Programming Framework (DSPy)"
+  },
+  "dspy-ai": {
+    "risk": "Medium",
+    "desc": "Declarative LLM Programming Framework (DSPy)"
+  },
+  "instructor": {
+    "risk": "Medium",
+    "desc": "Structured LLM Output Library"
+  },
+  "outlines": {
+    "risk": "Medium",
+    "desc": "Constrained LLM Generation"
+  },
+  "guidance": {
+    "risk": "Medium",
+    "desc": "Constrained LLM Generation (Guidance)"
+  },
+  "pydantic-ai": {
+    "risk": "Medium",
+    "desc": "Typed Agent Framework (PydanticAI)"
+  },
+  "autogen": {
+    "risk": "Medium",
+    "desc": "Multi-Agent Conversation Framework"
+  },
+  "autogen-agentchat": {
+    "risk": "Medium",
+    "desc": "Multi-Agent Conversation Framework (AutoGen)"
+  },
+  "crewai": {
+    "risk": "Medium",
+    "desc": "AI Agent Orchestration"
+  },
+  "smolagents": {
+    "risk": "Medium",
+    "desc": "Lightweight Agent Framework (Hugging Face)"
+  },
+  "openai-agents": {
+    "risk": "Medium",
+    "desc": "OpenAI Agents SDK"
+  },
+  "semantic-kernel": {
+    "risk": "Medium",
+    "desc": "Microsoft AI SDK"
+  },
+  "mcp": {
+    "risk": "Medium",
+    "desc": "Model Context Protocol SDK — exposes tools/data to external models"
+  },
+  "fastmcp": {
+    "risk": "Medium",
+    "desc": "Model Context Protocol server framework"
+  },
+  "torch": {
+    "risk": "High",
+    "desc": "PyTorch Machine Learning Framework"
+  },
+  "torchvision": {
+    "risk": "High",
+    "desc": "PyTorch Computer Vision Library"
+  },
+  "torchaudio": {
+    "risk": "High",
+    "desc": "PyTorch Audio Library"
+  },
+  "tensorflow": {
+    "risk": "High",
+    "desc": "TensorFlow Machine Learning Framework"
+  },
+  "keras": {
+    "risk": "High",
+    "desc": "Deep Learning API"
+  },
+  "jax": {
+    "risk": "High",
+    "desc": "High-Performance ML Framework (Google)"
+  },
+  "flax": {
+    "risk": "High",
+    "desc": "Neural Network Library for JAX"
+  },
+  "scikit-learn": {
+    "risk": "Low",
+    "desc": "Traditional Machine Learning Library"
+  },
+  "xgboost": {
+    "risk": "Low",
+    "desc": "Gradient Boosting Machine Learning Library"
+  },
+  "lightgbm": {
+    "risk": "Low",
+    "desc": "Gradient Boosting Framework"
+  },
+  "catboost": {
+    "risk": "Low",
+    "desc": "Gradient Boosting Framework (CatBoost)"
+  },
+  "statsmodels": {
+    "risk": "Low",
+    "desc": "Statistical Modelling Library"
+  },
+  "transformers": {
+    "risk": "High",
+    "desc": "Hugging Face Transformers"
+  },
+  "diffusers": {
+    "risk": "High",
+    "desc": "Hugging Face Diffusion Models"
+  },
+  "sentence-transformers": {
+    "risk": "High",
+    "desc": "Sentence Embedding Models (Hugging Face)"
+  },
+  "datasets": {
+    "risk": "Low",
+    "desc": "Hugging Face Datasets Library"
+  },
+  "huggingface-hub": {
+    "risk": "High",
+    "desc": "Hugging Face Model/Dataset Hub Client — downloads third-party weights"
+  },
+  "huggingface_hub": {
+    "risk": "High",
+    "desc": "Hugging Face Model/Dataset Hub Client — downloads third-party weights"
+  },
+  "timm": {
+    "risk": "High",
+    "desc": "PyTorch Image Models (pretrained vision weights)"
+  },
+  "accelerate": {
+    "risk": "Medium",
+    "desc": "Distributed Training/Inference Launcher (Hugging Face)"
+  },
+  "peft": {
+    "risk": "High",
+    "desc": "Parameter-Efficient Fine-Tuning"
+  },
+  "trl": {
+    "risk": "High",
+    "desc": "Transformer Reinforcement Learning (RLHF/DPO fine-tuning)"
+  },
+  "bitsandbytes": {
+    "risk": "Medium",
+    "desc": "Model Quantisation Library"
+  },
+  "deepspeed": {
+    "risk": "Medium",
+    "desc": "Distributed Training Optimisation (DeepSpeed)"
+  },
+  "unsloth": {
+    "risk": "High",
+    "desc": "Accelerated LLM Fine-Tuning"
+  },
+  "spacy": {
+    "risk": "Low",
+    "desc": "NLP Pipeline Library"
+  },
+  "nltk": {
+    "risk": "Low",
+    "desc": "Natural Language Toolkit"
+  },
+  "opencv-python": {
+    "risk": "Medium",
+    "desc": "Computer Vision Library"
+  },
+  "ultralytics": {
+    "risk": "High",
+    "desc": "YOLO Object Detection Models"
+  },
+  "openai-whisper": {
+    "risk": "High",
+    "desc": "Speech Recognition Model (Whisper)"
+  },
+  "faster-whisper": {
+    "risk": "High",
+    "desc": "Speech Recognition Model (Whisper, CTranslate2)"
+  },
+  "vllm": {
+    "risk": "High",
+    "desc": "High-Throughput LLM Inference Engine"
+  },
+  "ollama": {
+    "risk": "High",
+    "desc": "Local LLM Runner"
+  },
+  "llama-cpp-python": {
+    "risk": "High",
+    "desc": "Local GGUF Model Inference (llama.cpp)"
+  },
+  "onnxruntime": {
+    "risk": "High",
+    "desc": "ONNX Model Inference Runtime"
+  },
+  "onnxruntime-gpu": {
+    "risk": "High",
+    "desc": "ONNX Model Inference Runtime (GPU)"
+  },
+  "tritonclient": {
+    "risk": "High",
+    "desc": "NVIDIA Triton Inference Server Client"
+  },
+  "ctranslate2": {
+    "risk": "High",
+    "desc": "Optimised Transformer Inference Engine"
+  },
+  "optimum": {
+    "risk": "Medium",
+    "desc": "Hugging Face Model Optimisation/Export"
+  },
+  "ray": {
+    "risk": "Medium",
+    "desc": "Distributed Compute Framework (commonly Ray Serve/Train for ML)"
+  },
+  "bentoml": {
+    "risk": "Medium",
+    "desc": "Model Serving Framework"
+  },
+  "kserve": {
+    "risk": "Medium",
+    "desc": "Kubernetes Model Serving"
+  },
+  "pinecone-client": {
+    "risk": "Low",
+    "desc": "Vector Database Client (Pinecone)"
+  },
+  "pinecone": {
+    "risk": "Low",
+    "desc": "Vector Database Client (Pinecone)"
+  },
+  "qdrant-client": {
+    "risk": "Low",
+    "desc": "Vector Database Client (Qdrant)"
+  },
+  "chromadb": {
+    "risk": "Low",
+    "desc": "Vector Database (Chroma)"
+  },
+  "weaviate-client": {
+    "risk": "Low",
+    "desc": "Vector Database Client (Weaviate)"
+  },
+  "faiss-cpu": {
+    "risk": "Low",
+    "desc": "Vector Similarity Search (FAISS)"
+  },
+  "faiss-gpu": {
+    "risk": "Low",
+    "desc": "Vector Similarity Search (FAISS, GPU)"
+  },
+  "pgvector": {
+    "risk": "Low",
+    "desc": "Postgres Vector Extension Client"
+  },
+  "lancedb": {
+    "risk": "Low",
+    "desc": "Vector Database (LanceDB)"
+  },
+  "milvus": {
+    "risk": "Low",
+    "desc": "Vector Database (Milvus)"
+  },
+  "mlflow": {
+    "risk": "Medium",
+    "desc": "ML Lifecycle Management"
+  },
+  "wandb": {
+    "risk": "Medium",
+    "desc": "Experiment Tracking (Weights & Biases) — transmits run data to a third party"
+  },
+  "dvc": {
+    "risk": "Low",
+    "desc": "Data/Model Version Control"
+  },
+  "evidently": {
+    "risk": "Low",
+    "desc": "ML Model Monitoring & Drift Detection"
+  },
+  "deepchecks": {
+    "risk": "Low",
+    "desc": "ML Model Validation & Testing"
+  },
+  "great-expectations": {
+    "risk": "Low",
+    "desc": "Data Quality Validation"
+  },
+  "@anthropic-ai/sdk": {
+    "risk": "High",
+    "desc": "External LLM API Call (Anthropic, Node.js)"
+  },
+  "@google/generative-ai": {
+    "risk": "High",
+    "desc": "External LLM API Call (Google Gemini, Node.js)"
+  },
+  "@google/genai": {
+    "risk": "High",
+    "desc": "External LLM API Call (Google Gen AI SDK, Node.js)"
+  },
+  "@mistralai/mistralai": {
+    "risk": "High",
+    "desc": "External LLM API Call (Mistral, Node.js)"
+  },
+  "cohere-ai": {
+    "risk": "High",
+    "desc": "External LLM API Call (Cohere, Node.js)"
+  },
+  "groq-sdk": {
+    "risk": "High",
+    "desc": "External LLM API Call (Groq, Node.js)"
+  },
+  "@aws-sdk/client-bedrock-runtime": {
+    "risk": "High",
+    "desc": "AWS Bedrock Model Invocation (Node.js)"
+  },
+  "@azure/openai": {
+    "risk": "High",
+    "desc": "Azure OpenAI Client (Node.js)"
+  },
+  "ai": {
+    "risk": "High",
+    "desc": "Vercel AI SDK — streaming LLM calls to external providers"
+  },
+  "@ai-sdk/openai": {
+    "risk": "High",
+    "desc": "Vercel AI SDK provider (OpenAI)"
+  },
+  "@ai-sdk/anthropic": {
+    "risk": "High",
+    "desc": "Vercel AI SDK provider (Anthropic)"
+  },
+  "@ai-sdk/google": {
+    "risk": "High",
+    "desc": "Vercel AI SDK provider (Google)"
+  },
+  "@langchain/core": {
+    "risk": "Medium",
+    "desc": "LLM Orchestration Framework (LangChain, Node.js)"
+  },
+  "@langchain/openai": {
+    "risk": "High",
+    "desc": "LangChain provider (OpenAI, Node.js)"
+  },
+  "@langchain/anthropic": {
+    "risk": "High",
+    "desc": "LangChain provider (Anthropic, Node.js)"
+  },
+  "@langchain/community": {
+    "risk": "Medium",
+    "desc": "LangChain community integrations (Node.js)"
+  },
+  "@huggingface/inference": {
+    "risk": "High",
+    "desc": "Hugging Face Inference API Client (Node.js)"
+  },
+  "@huggingface/transformers": {
+    "risk": "High",
+    "desc": "Transformers.js — in-process model inference"
+  },
+  "@xenova/transformers": {
+    "risk": "High",
+    "desc": "Transformers.js — in-process model inference"
+  },
+  "@modelcontextprotocol/sdk": {
+    "risk": "Medium",
+    "desc": "Model Context Protocol SDK — exposes tools/data to external models"
+  },
+  "onnxruntime-node": {
+    "risk": "High",
+    "desc": "ONNX Model Inference Runtime (Node.js)"
+  },
+  "onnxruntime-web": {
+    "risk": "High",
+    "desc": "ONNX Model Inference Runtime (browser)"
+  },
+  "@tensorflow/tfjs": {
+    "risk": "High",
+    "desc": "TensorFlow.js Machine Learning Framework"
+  },
+  "@tensorflow/tfjs-node": {
+    "risk": "High",
+    "desc": "TensorFlow.js Machine Learning Framework (Node.js)"
+  },
+  "@pinecone-database/pinecone": {
+    "risk": "Low",
+    "desc": "Vector Database Client (Pinecone, Node.js)"
+  },
+  "@qdrant/js-client-rest": {
+    "risk": "Low",
+    "desc": "Vector Database Client (Qdrant, Node.js)"
+  },
+  "chromadb-default-embed": {
+    "risk": "Low",
+    "desc": "Chroma default embedding function"
+  },
+  "deepface": {
+    "risk": "High",
+    "desc": "Facial Analysis Framework (recognition, emotion, demographic attributes)"
+  },
+  "face-recognition": {
+    "risk": "High",
+    "desc": "Facial Recognition Library (dlib-based)"
+  },
+  "face_recognition": {
+    "risk": "High",
+    "desc": "Facial Recognition Library (dlib-based)"
+  },
+  "insightface": {
+    "risk": "High",
+    "desc": "Face Analysis Toolkit (ArcFace recognition, attributes)"
+  },
+  "facenet-pytorch": {
+    "risk": "High",
+    "desc": "Face Recognition Embeddings (FaceNet)"
+  },
+  "retina-face": {
+    "risk": "High",
+    "desc": "Face Detection Model (RetinaFace)"
+  },
+  "retinaface": {
+    "risk": "High",
+    "desc": "Face Detection Model (RetinaFace)"
+  },
+  "mtcnn": {
+    "risk": "High",
+    "desc": "Face Detection Model (MTCNN)"
+  },
+  "dlib": {
+    "risk": "Medium",
+    "desc": "Computer Vision Toolkit (face detection, landmarks, embeddings)"
+  },
+  "facexlib": {
+    "risk": "High",
+    "desc": "Face Processing Utilities (detection, recognition, parsing)"
+  },
+  "fer": {
+    "risk": "High",
+    "desc": "Facial Emotion Recognition"
+  },
+  "py-feat": {
+    "risk": "High",
+    "desc": "Facial Expression Analysis Toolkit"
+  },
+  "hsemotion": {
+    "risk": "High",
+    "desc": "Facial Emotion Recognition Models"
+  },
+  "hsemotion-onnx": {
+    "risk": "High",
+    "desc": "Facial Emotion Recognition Models (ONNX)"
+  },
+  "opensmile": {
+    "risk": "High",
+    "desc": "Speech Feature Extraction (affect and paralinguistics)"
+  },
+  "pyaudioanalysis": {
+    "risk": "Medium",
+    "desc": "Audio Analysis Library (includes emotion/affect models)"
+  },
+  "speechbrain": {
+    "risk": "High",
+    "desc": "Speech Toolkit (ASR, speaker ID, emotion recognition)"
+  },
+  "fairface": {
+    "risk": "High",
+    "desc": "Face Attribute Model (race, gender, age classification)"
+  },
+  "mediapipe": {
+    "risk": "Medium",
+    "desc": "On-device Perception Toolkit (face mesh, iris, pose)"
+  },
+  "opencv-contrib-python": {
+    "risk": "Medium",
+    "desc": "Computer Vision Library (contrib modules incl. face)"
+  },
+  "azure-cognitiveservices-vision-face": {
+    "risk": "High",
+    "desc": "Azure Face API Client (detection, identification)"
+  },
+  "azure-ai-vision-face": {
+    "risk": "High",
+    "desc": "Azure Face API Client (detection, identification)"
+  },
+  "google-cloud-vision": {
+    "risk": "High",
+    "desc": "Google Cloud Vision API Client (face detection, labels)"
+  },
+  "clarifai": {
+    "risk": "High",
+    "desc": "Hosted Vision/Recognition API Client"
+  }
 }

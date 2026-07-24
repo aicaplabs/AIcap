@@ -338,6 +338,16 @@ func GenerateAnnexIVMarkdownWithAttestation(bom types.AIBOM, register types.Risk
 	renderGovernanceSection(&sb, "Bias Monitoring", bom.Governance.BiasMonitoring)
 	sb.WriteString("\n")
 
+	// EU AI Act Article 5 review (Wave 20). Placed immediately before the
+	// provenance section so it is the last substantive thing a reader
+	// encounters — Article 5 is already in force and carries the Act's
+	// heaviest penalties, so it should not be buried mid-document.
+	// Omitted entirely when nothing matched, because printing "none
+	// detected" would read as a clearance this scan cannot give.
+	if art5 := RenderArticle5Markdown(bom.ProhibitedPractices); art5 != "" {
+		sb.WriteString(art5)
+	}
+
 	// Section 5: Proof Drill / provenance.
 	//
 	// The wording branches on attestation because the two artefacts make

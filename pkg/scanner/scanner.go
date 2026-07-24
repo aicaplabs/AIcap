@@ -390,6 +390,14 @@ func PerformScan(scanDir string) types.AIBOM {
 	// Cross-reference detected dependencies with known ML attack vectors
 	compliance.EnrichWithOWASPRisks(&bom)
 
+	// Phase: EU AI Act Article 5 indicators (Wave 20). Article 5 has
+	// applied since 2 Feb 2025 — earlier than the high-risk rules the
+	// rest of this scanner serves — and carries the Act's heaviest
+	// penalties. These are indicators requiring human assessment, never
+	// determinations: whether a prohibition applies turns on deployment
+	// context a static scan cannot observe.
+	bom.ProhibitedPractices = compliance.DetectProhibitedPractices(bom)
+
 	// Phase: Policy-as-Code Evaluation
 	// Load .aicap.yml policy if it exists in the scanned directory
 	policy := compliance.LoadPolicyConfig(scanDir)

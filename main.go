@@ -176,6 +176,25 @@ func main() {
 				}
 			}
 
+			// Article 5 indicators (Wave 20). Printed before the Annex IV
+			// line because Article 5 is already in force and carries the
+			// Act's heaviest penalties — it should not scroll past
+			// underneath a file path. Worded as a review prompt, never a
+			// verdict: whether a prohibition applies turns on deployment
+			// context this scan cannot observe.
+			if len(bom.ProhibitedPractices) > 0 {
+				fmt.Printf("\n[!] EU AI Act Article 5 review required — %d component(s) with in-scope capabilities:\n",
+					len(bom.ProhibitedPractices))
+				for _, p := range bom.ProhibitedPractices {
+					fmt.Printf("    %s (%s) — %s\n", p.Component, p.Article, p.Practice)
+					fmt.Printf("      Q: %s\n", p.Question)
+				}
+				fmt.Println("    These are indicators, not findings of breach — Article 5 turns on purpose")
+				fmt.Println("    and deployment setting. The Annex IV draft states what each paragraph")
+				fmt.Println("    prohibits. Article 5 has applied since 2 February 2025; penalties reach")
+				fmt.Println("    EUR 35M or 7% of worldwide turnover (Article 99(3)).")
+			}
+
 			if opts.AnnexIVPath != "" {
 				if err := os.WriteFile(opts.AnnexIVPath, []byte(annexIV), 0o644); err != nil {
 					fmt.Printf("[-] Warning: could not write Annex IV draft to %s: %v\n", opts.AnnexIVPath, err)

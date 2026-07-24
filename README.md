@@ -49,6 +49,7 @@
 
 ### ⚖️ Compliance Automation
 - **EU AI Act Annex IV** — Auto-generates technical documentation with risk register, licensing summary, and policy compliance
+- **Article 5 prohibited-practice indicators** — Flags components whose capabilities fall within the scope of the prohibitions already in force since 2 Feb 2025 (emotion inference, biometric identification and categorisation). Indicators with the legal question attached, never verdicts: whether a prohibition applies turns on deployment context no scanner can observe
 - **OWASP ML Top 10** — Cross-references dependencies with known ML attack vectors (supply chain, prompt injection, model theft, data poisoning)
 - **Policy-as-Code** — `.aicap.yml` configuration for model governance (blocked/allowed models, risk thresholds, license restrictions)
 - **CycloneDX 1.5** — Industry-standard SBOM output with Package URLs (PURLs) and a populated `vulnerabilities` array (live OSV advisories, linked to components by `bom-ref`, with upgrade targets) so Dependency-Track and friends ingest what the scan already found

@@ -100,6 +100,10 @@ type AIBOM struct {
 	// recommend the matching inference-optimized family. Empty when no
 	// candidate finding matched or when training signals were detected.
 	FinOpsRecommendations []FinOpsRightsizing `json:"finOpsRecommendations,omitempty"`
+	// ProhibitedPractices (Wave 20) are EU AI Act Article 5 indicators.
+	// Empty means no *detectable* indicator matched — not a clearance,
+	// since several Article 5 prohibitions leave no trace in a manifest.
+	ProhibitedPractices []ProhibitedPracticeSignal `json:"prohibitedPractices,omitempty"`
 }
 
 // FinOpsRightsizing is one rightsizing suggestion for a detected
@@ -488,4 +492,27 @@ type Drift struct {
 	Risk             RiskDrift         `json:"risk"`
 	ComplianceChange *ComplianceChange `json:"complianceChange,omitempty"`
 	Summary          DriftSummary      `json:"summary"`
+}
+
+// ProhibitedPracticeSignal is one Article 5 indicator: a detected
+// component whose capability falls within the scope of an EU AI Act
+// prohibited practice.
+//
+// It is deliberately not called a "violation" or a "finding". Article 5
+// prohibitions turn on purpose, context, and deployment setting, none of
+// which a static scan can observe — the same library is prohibited when
+// pointed at employees and unremarkable in a consented study. Every
+// signal therefore carries the text of what the cited paragraph actually
+// prohibits and the question a human must answer, and its Status is
+// "requires human assessment" rather than pass or fail.
+type ProhibitedPracticeSignal struct {
+	Component   string `json:"component"`
+	Version     string `json:"version,omitempty"`
+	Location    string `json:"location,omitempty"`
+	Practice    string `json:"practice"`
+	Article     string `json:"article"`
+	Prohibition string `json:"prohibition"`
+	AppliesWhen string `json:"appliesWhen"`
+	Question    string `json:"question"`
+	Status      string `json:"status"`
 }
