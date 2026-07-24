@@ -14,11 +14,18 @@ inputs:
   api-key:
     description: "Pro Tier: Your AIcap API Key to sync results to your dashboard"
     required: false
+  annex-iv-path:
+    description: "Where to write the Annex IV technical documentation draft. Free — no API key needed. A draft generated without an API key is marked unattested in its § 5, because a document produced on the machine that holds the code proves nothing to a third party; syncing with an API key anchors it to the audit ledger."
+    required: false
+    default: "aicap-annex-iv.md"
 
 outputs:
   compliance-status:
     description: "EU AI Act posture from the scan (e.g. 'Passed' or 'Action Required (Annex IV Documentation Missing)'). Set even when the scan fails the job, so later steps with if: always() can report on it."
     value: ${{ steps.scan.outputs.compliance-status }}
+  annex-iv-path:
+    description: "Path to the generated Annex IV markdown draft, for a later upload-artifact or PR-comment step."
+    value: ${{ steps.scan.outputs.annex-iv-path }}
 
 runs:
   using: "composite"
@@ -26,8 +33,8 @@ runs:
     - name: Download AIcap Scanner
       shell: bash
       run: |
-        echo "⬇️ Downloading AIcap v1.4.0 statically-linked binary..."
-        curl -sL https://github.com/aicaplabs/AIcap/releases/download/v1.4.0/aicap-linux-amd64 -o aicap
+        echo "⬇️ Downloading AIcap v1.5.0 statically-linked binary..."
+        curl -sL https://github.com/aicaplabs/AIcap/releases/download/v1.5.0/aicap-linux-amd64 -o aicap
         chmod +x aicap
 
     - name: Execute AI-BOM Scan
@@ -41,8 +48,10 @@ runs:
         # preserving the CLI's exit code (0 pass / 1 unmitigated
         # high-risk / 2 policy blocker) so the job still gates merges.
         set +e
-        ./aicap --cli "${{ inputs.scan-directory }}" | tee aicap-scan-output.txt
+        ./aicap --cli "${{ inputs.scan-directory }}" \
+          --annex-iv "${{ inputs.annex-iv-path }}" | tee aicap-scan-output.txt
         exit_code=${PIPESTATUS[0]}
         status=$(grep -o '"complianceStatus": *"[^"]*"' aicap-scan-output.txt | head -1 | sed 's/.*: *"\(.*\)"/\1/')
         echo "compliance-status=${status:-Unknown}" >> "$GITHUB_OUTPUT"
+        echo "annex-iv-path=${{ inputs.annex-iv-path }}" >> "$GITHUB_OUTPUT"
         exit "$exit_code"

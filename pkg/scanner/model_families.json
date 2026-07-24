@@ -1,0 +1,117 @@
+{
+  "_meta": {
+    "description": "Model-family patterns for hardcoded model-identifier detection. Matched case-insensitively against string literals in source code, anywhere within the literal, so vendor prefixes and date suffixes are tolerated: 'anthropic/claude-opus-4-5', 'gpt-4o-2024-08-06', 'meta-llama/Llama-3.1-8B'.",
+    "why_patterns": "The previous approach was a flat list of literal model names. It went stale the moment a vendor shipped a new generation — a codebase using a current model scanned clean and reported no AI components at all. Families keep matching across releases, so the catalog degrades gracefully instead of silently.",
+    "license_field": "Applied to a detected model when licenses.json has no more specific mapping. Open-weight families are left blank so the live Hugging Face lookup can resolve the actual licence."
+  },
+  "families": [
+    {
+      "name": "OpenAI GPT",
+      "pattern": "gpt-[0-9]+(?:\\.[0-9]+)?(?:-[a-z0-9]+)*",
+      "vendor": "OpenAI",
+      "license": "Proprietary (OpenAI)"
+    },
+    {
+      "name": "OpenAI reasoning (o-series)",
+      "pattern": "(?:^|[\"'/:=-])o[1-9](?:-(?:mini|preview|pro|high|low))?(?:$|[\"'/,.\\s-])",
+      "vendor": "OpenAI",
+      "license": "Proprietary (OpenAI)"
+    },
+    {
+      "name": "OpenAI embeddings & multimodal",
+      "pattern": "(?:text-embedding-[0-9a-z-]+|dall-e-[0-9]|whisper-[0-9a-z]+|sora-[0-9a-z.-]+)",
+      "vendor": "OpenAI",
+      "license": "Proprietary (OpenAI)"
+    },
+    {
+      "name": "Anthropic Claude",
+      "pattern": "claude-(?:[0-9]+(?:\\.[0-9]+)?-)?(?:opus|sonnet|haiku|instant)(?:-[0-9]+(?:[.-][0-9]+)*)?",
+      "vendor": "Anthropic",
+      "license": "Proprietary (Anthropic)"
+    },
+    {
+      "name": "Google Gemini",
+      "pattern": "gemini-[0-9]+(?:\\.[0-9]+)?(?:-(?:pro|flash|ultra|nano|lite)(?:-[a-z0-9]+)*)?",
+      "vendor": "Google",
+      "license": "Proprietary (Google)"
+    },
+    {
+      "name": "Google Gemma",
+      "pattern": "gemma-?[0-9]+(?:\\.[0-9]+)?(?:-[0-9]+b)?",
+      "vendor": "Google",
+      "license": ""
+    },
+    {
+      "name": "Meta Llama",
+      "pattern": "llama-?[0-9]+(?:\\.[0-9]+)?(?:-[0-9]+b)?",
+      "vendor": "Meta",
+      "license": ""
+    },
+    {
+      "name": "Mistral",
+      "pattern": "(?:mistral-(?:large|small|medium|nemo|saba|tiny)|mixtral-[0-9]+x[0-9]+b|codestral|pixtral|magistral|devstral)(?:-[a-z0-9.-]+)?",
+      "vendor": "Mistral AI",
+      "license": ""
+    },
+    {
+      "name": "DeepSeek",
+      "pattern": "deepseek-(?:v[0-9]+(?:\\.[0-9]+)?|r[0-9]+|coder|chat|math|prover)(?:-[a-z0-9.-]+)?",
+      "vendor": "DeepSeek",
+      "license": ""
+    },
+    {
+      "name": "Alibaba Qwen",
+      "pattern": "(?:qwen-?[0-9]+(?:\\.[0-9]+)?(?:-[a-z0-9]+)*|qwq-[0-9a-z]+)",
+      "vendor": "Alibaba",
+      "license": ""
+    },
+    {
+      "name": "xAI Grok",
+      "pattern": "grok-[0-9]+(?:\\.[0-9]+)?(?:-[a-z0-9]+)*",
+      "vendor": "xAI",
+      "license": "Proprietary (xAI)"
+    },
+    {
+      "name": "Cohere Command",
+      "pattern": "command-(?:r|a|light|nightly)(?:-plus)?(?:-[0-9a-z]+)*",
+      "vendor": "Cohere",
+      "license": "Proprietary (Cohere)"
+    },
+    {
+      "name": "Microsoft Phi",
+      "pattern": "phi-[0-9]+(?:\\.[0-9]+)?(?:-[a-z0-9]+)*",
+      "vendor": "Microsoft",
+      "license": ""
+    },
+    {
+      "name": "Amazon Nova & Titan",
+      "pattern": "(?:nova-(?:micro|lite|pro|premier|canvas|reel)|titan-(?:text|embed|image)[a-z0-9-]*)",
+      "vendor": "Amazon",
+      "license": "Proprietary (Amazon)"
+    },
+    {
+      "name": "AI21 Jamba",
+      "pattern": "jamba-[0-9a-z.-]+",
+      "vendor": "AI21 Labs",
+      "license": ""
+    },
+    {
+      "name": "Image generation",
+      "pattern": "(?:stable-diffusion(?:-[a-z0-9.-]+)?|sdxl(?:-[a-z0-9.-]+)?|flux\\.[0-9](?:-[a-z]+)?|midjourney)",
+      "vendor": "various",
+      "license": ""
+    },
+    {
+      "name": "Databricks DBRX",
+      "pattern": "dbrx(?:-[a-z]+)?",
+      "vendor": "Databricks",
+      "license": ""
+    },
+    {
+      "name": "01.AI Yi",
+      "pattern": "yi-(?:large|medium|small|[0-9]+b)(?:-[a-z0-9]+)*",
+      "vendor": "01.AI",
+      "license": ""
+    }
+  ]
+}

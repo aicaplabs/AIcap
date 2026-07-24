@@ -136,6 +136,17 @@ secrets:
   supabaseJwtSecret: ""       # HS256 secret used by Supabase to sign session JWTs
   stripeSecretKey: ""         # sk_live_… or sk_test_…
   stripeWebhookSecret: ""     # whsec_…
+  # Base64 Ed25519 seed signing each proof-drill ledger entry.
+  # Generate with: aicap --gen-ledger-key
+  #
+  # Leaving this empty is supported — entries are written unsigned and
+  # /api/verify-chain reports them as such. But an unsigned ledger only
+  # proves its rows are consistent with each other, not that this service
+  # wrote them: anyone with write access to your database can recompute
+  # the entire chain. If you are relying on the ledger as evidence for a
+  # third party, set this, and keep it in a secret store rather than in
+  # the database it protects.
+  ledgerSigningKey: ""
 
 # Optional one-shot migration Job.
 # Set runMigrations=false above and migrationJob.enabled=true to run

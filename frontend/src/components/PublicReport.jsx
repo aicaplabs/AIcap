@@ -92,6 +92,8 @@ function ReportBody({ report }) {
         <Provenance label="Ledger hash" value={report.cryptoHash?.substring(0, 12) + '…'} mono />
       </div>
 
+      <AttestationNotice attestation={report.attestation} />
+
       <div className="bg-white rounded-2xl border border-slate-200 shadow-[0_8px_30px_rgb(0,0,0,0.06)] overflow-hidden">
         <div className="px-4 py-2 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
           <span className="text-xs px-2 py-1 rounded text-blue-700 bg-blue-50 font-bold">
@@ -125,6 +127,74 @@ function ReportBody({ report }) {
         </a>
       </div>
     </>
+  );
+}
+
+// AttestationNotice tells the recipient whether this record can be
+// checked independently, and how.
+//
+// A shared report is only evidence if the person receiving it can verify
+// it without trusting the person who sent it. Stating "signed" without
+// saying how to check the signature would be decoration; the point is
+// that the recipient has everything they need — the signed bytes, the
+// signature, and a public key served without authentication.
+//
+// The unsigned case is shown just as plainly. A recipient who sees no
+// notice at all should never have to wonder whether it was absent or
+// merely not rendered.
+function AttestationNotice({ attestation }) {
+  if (!attestation) return null;
+
+  const signed = Boolean(attestation.signature);
+
+  if (!signed) {
+    return (
+      <div className="bg-amber-50 border border-amber-200 rounded-xl px-5 py-4 mb-6 text-xs text-amber-900">
+        <p className="font-bold mb-1">Not cryptographically signed</p>
+        <p>
+          {attestation.note ||
+            'This entry predates ledger signing. Its hash chain is intact, but the record cannot be attributed to AIcap.'}
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <details className="bg-emerald-50 border border-emerald-200 rounded-xl px-5 py-4 mb-6 text-xs text-emerald-900">
+      <summary className="font-bold cursor-pointer">
+        Cryptographically signed — verify this yourself
+      </summary>
+      <p className="mt-2">
+        This record carries an {attestation.algorithm || 'Ed25519'} signature made with a key
+        held by AIcap and never stored in the database. A valid signature proves the record
+        was produced by AIcap and has not been altered since — including by whoever sent you
+        this link.
+      </p>
+      <p className="mt-2">
+        Base64-decode the signed message and signature below, then check them against the
+        public key published at{' '}
+        <code className="bg-white/60 px-1 rounded font-mono">
+          {attestation.publicKeyPath || '/api/ledger/public-key'}
+        </code>{' '}
+        using any Ed25519 implementation.
+      </p>
+      <dl className="mt-3 space-y-2">
+        <AttestationField label="Signed message (base64)" value={attestation.signedMessage} />
+        <AttestationField label="Signature (base64)" value={attestation.signature} />
+        {attestation.signingKeyId && (
+          <AttestationField label="Signing key" value={attestation.signingKeyId} />
+        )}
+      </dl>
+    </details>
+  );
+}
+
+function AttestationField({ label, value }) {
+  return (
+    <div>
+      <dt className="uppercase tracking-wide font-bold text-emerald-700">{label}</dt>
+      <dd className="font-mono break-all bg-white/60 rounded px-2 py-1 mt-0.5">{value}</dd>
+    </div>
   );
 }
 

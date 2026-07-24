@@ -39,8 +39,9 @@
 ### 🔍 AI Supply Chain Scanner
 | What it scans | How |
 |---|---|
-| **Python** (`requirements.txt`, `pyproject.toml`, source imports) | Detects AI libraries + hardcoded model IDs |
-| **Node.js** (`package.json`) | Matches against 70+ known AI/ML packages |
+| **Python** (`requirements*.txt`, `pyproject.toml` incl. PEP 621, lockfiles, source imports) | Detects AI libraries + hardcoded model IDs |
+| **Jupyter** (`.ipynb`) | Scans code cells for imports, model IDs, secrets, and `%pip install` magics |
+| **Node.js** (`package.json`, pnpm/yarn lockfiles) | Matches against 130+ known AI/ML packages, including scoped ones (`@anthropic-ai/sdk`, Vercel AI SDK, `@langchain/*`) |
 | **Go** (`go.mod`, AST analysis) | Parses module dependencies + string literals |
 | **Docker** (`Dockerfile`, `Dockerfile.*`) | Detects AI base images, model weight COPY, pip installs |
 | **Model weights** (`.safetensors`, `.onnx`, `.pt`, `.h5`, `.gguf`, etc.) | Flags local model files with license enrichment |
@@ -57,10 +58,52 @@
 - **Terraform** — Identifies GPU instances across AWS/Azure/GCP with hourly cost data and spot pricing analysis
 - **Helm** — Analyzes `values.yaml` for GPU allocation without autoscaling, detects model serving frameworks
 
-### 🔒 Immutable Audit Ledger
-- SHA-256 cryptographic hashing of every scan (commit + BOM + documentation)
+### 🔒 Immutable Audit Ledger (Pro)
+- SHA-256 hash chain over every scan (commit + BOM + documentation), so editing,
+  reordering, or deleting any historical entry breaks verification at every later link
+- **Ed25519 signature on every entry**, with the key held in the application
+  environment and never in the database — so possession of the database is not
+  the ability to rewrite history
+- Shareable report links — hand an auditor a URL without giving them an account
 - Cloud dashboard for historical Proof Drills with timestamp verification
-- Enterprise-grade API key management with Stripe subscription lifecycle
+- **Scan-to-scan drift** — what changed since the previous commit: new and
+  removed components, version moves, compliance-posture flips, and above all
+  advisories published against dependencies you have not touched. That last
+  one is the case a point-in-time audit structurally cannot catch, and it is
+  the evidence EU AI Act Article 72 post-market monitoring asks for
+
+#### Verifying a shared report yourself
+
+A shared report is only evidence if the recipient can check it without
+trusting the sender. Every shared report carries an `attestation` block, and
+the public key is published unauthenticated:
+
+```bash
+# The report, including its signature and the exact bytes that were signed
+curl "https://<backend>/api/public/report?token=<share-token>"
+
+# The Ed25519 public key that signed it
+curl "https://<backend>/api/ledger/public-key"
+```
+
+Base64-decode `attestation.signedMessage` and `attestation.signature`, then
+verify them against that public key with any Ed25519 implementation. A valid
+signature proves the record was produced by AIcap and has not been altered
+since — including by the party who sent you the link.
+
+The hash chain alone could not tell you that: it proves the entries are
+consistent with each other, not who wrote them. Pin the public key out of band
+(a DPA annex, your own records) if you don't want to trust the endpoint serving
+it.
+
+**What the free CLI does and does not give you.** The scan, the Article 9 risk
+register, the live CVE enrichment, and the Annex IV draft are all free and run
+entirely in your own pipeline. What Pro adds is *provenance*. A document you
+generated on the machine that holds your code can be regenerated, edited, or
+back-dated by anyone with access to that machine, so it is not evidence of
+anything to a third party — and a locally generated draft says exactly that in
+its § 5. Anchoring it to the ledger is what makes it checkable by someone who
+does not have to take your word for it.
 
 ---
 
@@ -85,7 +128,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Run AIcap Compliance Scan
-        uses: aicaplabs/AIcap@v1.4.0
+        uses: aicaplabs/AIcap@v1.5.0
         with:
           api-key: ${{ secrets.AICAP_API_KEY }}
           scan-directory: '.'
@@ -100,7 +143,10 @@ aicap --cli ./my-project
 # CycloneDX SBOM format (for enterprise toolchains)
 aicap --cli ./my-project --cyclonedx
 
-# Auto-sync to AIcap Cloud
+# Annex IV technical documentation draft (free — no API key needed)
+aicap --cli ./my-project --annex-iv annex-iv.md
+
+# Auto-sync to AIcap Cloud — anchors the same document to the audit ledger
 AICAP_API_KEY=aicap_pro_sk_xxx aicap --cli ./my-project
 ```
 
@@ -154,6 +200,7 @@ allowed_licenses:
 |---|---|---|---|
 | `api-key` | AIcap Pro API key for cloud sync | No | `""` |
 | `scan-directory` | Target directory to scan | No | `.` |
+| `annex-iv-path` | Where to write the Annex IV draft | No | `aicap-annex-iv.md` |
 
 ## 📤 CLI Flags
 
@@ -161,15 +208,23 @@ allowed_licenses:
 |---|---|
 | `--cli` | Run in headless CI/CD mode |
 | `--cyclonedx` | Output CycloneDX 1.5 JSON instead of AIcap format |
+| `--annex-iv <path>` | Write the Annex IV technical documentation draft to `<path>` |
+| `--no-annex-iv` | Skip Annex IV generation (and the OSV lookups it performs) |
+| `--image <ref>` | Scan a container image from a registry. Repeatable |
+| `--image-tar <path>` | Scan a local `docker save` tarball. Repeatable |
 
 ## 🌍 Environment Variables
 
 | Variable | Description |
 |---|---|
 | `AICAP_API_KEY` | Pro API key for cloud sync |
+| `AICAP_CATALOG_URL` | Remote detection-catalog bundle (AI libraries, model literals, model families, licences). Refreshes detection without upgrading the binary; falls back to the embedded catalogs on any failure |
+| `AICAP_GPU_COSTS_URL` | Remote GPU pricing catalog; falls back to the embedded one |
+| `AICAP_OSV_DISABLED` | Set to `true` to skip live CVE/GHSA enrichment from OSV.dev |
 | `GITHUB_REPOSITORY` | Auto-detected in GitHub Actions |
 | `GITHUB_SHA` | Auto-detected commit SHA |
 | `SUPABASE_DB_URL` | PostgreSQL connection for SaaS mode |
+| `AICAP_LEDGER_SIGNING_KEY` | Base64 Ed25519 seed signing each ledger entry (server-side). Generate with `aicap --gen-ledger-key`. Unset means entries are written unsigned and `/api/verify-chain` reports them as such |
 | `STRIPE_SECRET_KEY` | Stripe integration for Pro subscriptions |
 | `STRIPE_WEBHOOK_SECRET` | Stripe webhook signature verification |
 
@@ -205,12 +260,13 @@ AIcap uses multi-layered parsing written in optimized Go:
 
 | File | Parser | Detection |
 |---|---|---|
-| `requirements.txt` | Regex | AI libraries by name |
+| `requirements*.txt` | Regex | AI libraries by name (incl. `requirements-dev.txt`, `requirements/base.txt`) |
 | `package.json` | JSON | Dependencies + devDependencies |
 | `go.mod` | Line parser | AI Go modules in require blocks |
-| `pyproject.toml` | Section parser | Poetry/PEP dependencies |
+| `pyproject.toml` | Section + array parser | Poetry tables and PEP 621 `dependencies` / optional extras |
 | `Dockerfile` | Line parser | Base images, COPY weights, pip install |
 | `*.py` | Regex + import | `import torch`, hardcoded model strings, secrets |
+| `*.ipynb` | JSON + cell scan | Notebook code cells: imports, model strings, secrets, `!pip install` |
 | `*.go` | Go AST | String literal analysis for models & secrets |
 | `.env` | Key-value parser | 13+ AI platform API key patterns |
 | `*.yaml` / `*.yml` | Line parser | Kubernetes GPU requests, MIG detection |

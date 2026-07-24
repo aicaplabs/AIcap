@@ -1,0 +1,34 @@
+-- Migration: Ed25519 signature over each ledger entry.
+--
+-- Why: the hash chain (migration 00010) makes the ledger tamper-evident
+-- against edits to individual rows — alter a payload and its
+-- crypto_hash stops matching, delete or reorder a row and the prev_hash
+-- links break. What it cannot survive is a wholesale rewrite. Anyone
+-- with write access to this database can recompute every crypto_hash
+-- and prev_hash and produce a chain that verifies perfectly. The chain
+-- proves internal consistency; it says nothing about authorship.
+--
+-- That gap sits directly under the paid tier's central claim: that an
+-- auditor can check a report without taking the report owner's word for
+-- it. A signature made with a key held in the application environment —
+-- never in this database — closes it. Possession of the database is no
+-- longer possession of the ability to forge history.
+--
+-- Design:
+--   * Nullable, and stays NULL when AICAP_LEDGER_SIGNING_KEY is unset.
+--     Existing deployments and every row written before this migration
+--     keep working; verify-chain reports them as unsigned rather than
+--     failing them. Failing closed here would break the ledger for
+--     anyone who upgrades before configuring a key.
+--   * signing_key_id records which public key signed the row, so a key
+--     can be rotated without invalidating history: a verifier picks the
+--     key that was current when the row was written. It holds the first
+--     16 characters of the base64 public key — enough to disambiguate,
+--     not a secret.
+--   * The signature covers (user_id, commit_sha, crypto_hash) under a
+--     versioned domain separator, so a signature is bound to its
+--     position in one tenant's chain and cannot be replayed into
+--     another's. See pkg/ledger/entry.go.
+
+ALTER TABLE proof_drills ADD COLUMN IF NOT EXISTS signature TEXT;
+ALTER TABLE proof_drills ADD COLUMN IF NOT EXISTS signing_key_id TEXT;

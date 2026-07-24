@@ -21,6 +21,7 @@ import (
 	"aicap/pkg/finops"
 	"aicap/pkg/httplog"
 	"aicap/pkg/imagescan"
+	"aicap/pkg/ledger"
 	"aicap/pkg/migrate"
 	"aicap/pkg/scanner"
 	"aicap/pkg/types"
@@ -54,10 +55,35 @@ func main() {
 		return
 	}
 
+	// --gen-ledger-key prints a fresh Ed25519 seed for
+	// AICAP_LEDGER_SIGNING_KEY and exits. Operators should never have to
+	// hand-roll key material, and a weak or mistyped key silently
+	// degrades the ledger's central guarantee.
+	//
+	// Printed to stdout with the guidance on stderr, so the key can be
+	// piped into a secret store without capturing the prose with it.
+	if len(os.Args) > 1 && os.Args[1] == "--gen-ledger-key" {
+		key, err := ledger.GenerateSigningKey()
+		if err != nil {
+			log.Fatalf("generate ledger signing key: %v", err)
+		}
+		fmt.Println(key)
+		fmt.Fprintln(os.Stderr, "\nSet this as AICAP_LEDGER_SIGNING_KEY on the backend.")
+		fmt.Fprintln(os.Stderr, "Store it in your secret manager — it is never written to the database,")
+		fmt.Fprintln(os.Stderr, "which is precisely what stops anyone with database access from forging")
+		fmt.Fprintln(os.Stderr, "ledger history. Losing it does not corrupt existing entries, but new")
+		fmt.Fprintln(os.Stderr, "entries will be signed under a new key and old ones can only be verified")
+		fmt.Fprintln(os.Stderr, "with the old public key — so keep retired public keys published.")
+		return
+	}
+
 	// Headless CLI Mode for CI/CD Pipelines
 	if len(os.Args) > 1 && os.Args[1] == "--cli" {
-		scanDir, imageRefs, tarballPaths, wantCycloneDX := parseCLIArgs(os.Args[2:])
+		opts := parseCLIArgs(os.Args[2:])
+		scanDir, imageRefs, tarballPaths, wantCycloneDX :=
+			opts.ScanDir, opts.ImageRefs, opts.TarballPaths, opts.WantCycloneDX
 		fmt.Printf("Running AIcap in CI/CD CLI mode on directory: %s\n", scanDir)
+		loadRemoteCatalogs()
 		bom := scanner.PerformScan(scanDir)
 
 		// Wave 10 — daemonless container-image scanning. Either
@@ -105,6 +131,54 @@ func main() {
 			fmt.Println(string(cdxJSON))
 		} else {
 			fmt.Println(string(bomJSON))
+		}
+
+		// Article 9 risk register + Annex IV draft (Wave 16).
+		//
+		// Both were previously computed only inside /api/save-proof, so a
+		// free CLI run emitted neither — while action.yml and the
+		// Marketplace listing promised "AI-BOM, risk register, and Annex
+		// IV documentation on every push". Both are pure functions that
+		// need no server, and the paid boundary is the hosted ledger,
+		// the shareable report, and history — none of which this gives
+		// away. § 5 of a locally generated document states plainly that
+		// it is unattested.
+		if !opts.NoAnnexIV {
+			register := compliance.ComputeRiskRegister(bom)
+
+			// OSV enrichment runs from the caller's own runner against a
+			// public API. Opt out with AICAP_OSV_DISABLED=true; the
+			// register still renders from the local catalog.
+			if osvClient := compliance.NewOSVClient(); osvClient != nil {
+				ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+				compliance.EnrichWithOSV(ctx, &register, bom, osvClient)
+				cancel()
+			}
+
+			annexIV := compliance.GenerateAnnexIVMarkdownWithAttestation(
+				bom, register, types.Attestation{Anchored: false})
+
+			fmt.Printf("\n[+] Article 9 risk register: %d finding(s) — High: %d, Medium: %d, Low: %d\n",
+				register.Summary.Total, register.Summary.High,
+				register.Summary.Medium, register.Summary.Low)
+			for _, f := range register.Findings {
+				for _, v := range f.LiveVulns {
+					if v.FixedVersion != "" {
+						fmt.Printf("    %s %s — %s — fixed in %s\n",
+							f.Component, f.Version, v.ID, v.FixedVersion)
+					}
+				}
+			}
+
+			if opts.AnnexIVPath != "" {
+				if err := os.WriteFile(opts.AnnexIVPath, []byte(annexIV), 0o644); err != nil {
+					fmt.Printf("[-] Warning: could not write Annex IV draft to %s: %v\n", opts.AnnexIVPath, err)
+				} else {
+					fmt.Printf("[+] Annex IV draft written to %s (unattested — see § 5)\n", opts.AnnexIVPath)
+				}
+			} else {
+				fmt.Println("[+] Annex IV draft available — pass --annex-iv <path> to write it out.")
+			}
 		}
 
 		// Phase 7: Sync to SaaS if Pro API Key is present
@@ -211,6 +285,8 @@ func main() {
 		}
 	}
 
+	loadRemoteCatalogs()
+
 	mux := http.NewServeMux()
 	api.RegisterRoutes(mux, db, isCloudSaaS)
 
@@ -266,6 +342,35 @@ func main() {
 	if db != nil {
 		_ = db.Close()
 	}
+}
+
+// loadRemoteCatalogs applies an optional remote refresh of the detection
+// catalogs (AI libraries, model literals, model families, model
+// licences) named by AICAP_CATALOG_URL.
+//
+// Detection quality is a function of catalog freshness, and tying that to
+// release cadence is how a scanner ends up reporting that a codebase
+// using this quarter's models contains no AI components. This is the
+// same contract pkg/finops uses for GPU pricing: fetch once at startup,
+// keep the embedded catalogs on any failure.
+//
+// Diagnostics go to slog (stderr) rather than stdout — CLI stdout is
+// parsed as JSON by the GitHub Action and must stay clean.
+func loadRemoteCatalogs() {
+	url := os.Getenv("AICAP_CATALOG_URL")
+	if url == "" {
+		return
+	}
+	applied, err := scanner.LoadCatalogsFromURL(url)
+	if err != nil {
+		slog.Warn("remote detection catalog unavailable, using embedded catalogs",
+			slog.String("url", url),
+			slog.Any("error", err))
+		return
+	}
+	slog.Info("loaded remote detection catalogs",
+		slog.String("url", url),
+		slog.Any("catalogs", applied))
 }
 
 // complianceExitCode maps the post-scan BOM state to a CI exit code.
@@ -350,33 +455,60 @@ func badgeMarkdown(bom types.AIBOM) string {
 
 // parseCLIArgs parses the --cli subcommand's tail (everything after
 // the "--cli" token). The first positional argument is the scan
+// cliOptions is the parsed form of the `--cli` argument list. A struct
+// rather than a return tuple because the flag set has outgrown what is
+// readable as positional results.
+type cliOptions struct {
+	ScanDir       string
+	ImageRefs     []string
+	TarballPaths  []string
+	WantCycloneDX bool
+	// AnnexIVPath, when non-empty, is where the Annex IV markdown draft
+	// is written. Empty means "don't write a file"; the draft is still
+	// generated and summarised on stdout.
+	AnnexIVPath string
+	// NoAnnexIV suppresses Annex IV generation entirely, for pipelines
+	// that only want the BOM and don't want the OSV lookups that
+	// enrichment performs.
+	NoAnnexIV bool
+}
+
 // directory (defaults to "."). Recognised flags:
 //
 //	--image <ref>      Remote registry reference. Repeatable.
 //	--image-tar <path> Local docker-save tarball. Repeatable.
 //	--cyclonedx        Emit CycloneDX-formatted SBOM instead of AICAP JSON.
+//	--annex-iv <path>  Write the Annex IV markdown draft to <path>.
+//	--no-annex-iv      Skip Annex IV generation (and its OSV lookups).
 //
 // Unknown flags are ignored to preserve forward compatibility with
 // the GitHub Action wrapper: a new action.yml release can pass new
 // flags to an older binary without breaking the pipeline.
-func parseCLIArgs(args []string) (scanDir string, imageRefs []string, tarballPaths []string, wantCycloneDX bool) {
-	scanDir = "."
+func parseCLIArgs(args []string) cliOptions {
+	opts := cliOptions{ScanDir: "."}
 	sawDir := false
 	for i := 0; i < len(args); i++ {
 		arg := args[i]
 		switch arg {
 		case "--image":
 			if i+1 < len(args) {
-				imageRefs = append(imageRefs, args[i+1])
+				opts.ImageRefs = append(opts.ImageRefs, args[i+1])
 				i++
 			}
 		case "--image-tar":
 			if i+1 < len(args) {
-				tarballPaths = append(tarballPaths, args[i+1])
+				opts.TarballPaths = append(opts.TarballPaths, args[i+1])
 				i++
 			}
 		case "--cyclonedx":
-			wantCycloneDX = true
+			opts.WantCycloneDX = true
+		case "--annex-iv":
+			if i+1 < len(args) {
+				opts.AnnexIVPath = args[i+1]
+				i++
+			}
+		case "--no-annex-iv":
+			opts.NoAnnexIV = true
 		default:
 			if strings.HasPrefix(arg, "--") {
 				// Unknown flag — skip it AND its value if the
@@ -391,10 +523,10 @@ func parseCLIArgs(args []string) (scanDir string, imageRefs []string, tarballPat
 				continue
 			}
 			if !sawDir {
-				scanDir = arg
+				opts.ScanDir = arg
 				sawDir = true
 			}
 		}
 	}
-	return scanDir, imageRefs, tarballPaths, wantCycloneDX
+	return opts
 }
