@@ -2,12 +2,24 @@
 aicap-linux-amd64
 aicap.exe
 
-# Documentation is tracked, but CI/test log artifacts dropped in there are not.
-/documentation/*.log
-
 # Local editor/assistant context — kept out of the repo.
 CLAUDE.md
 .claude/
 
-# Local operator runbook — deliberately not tracked (owner's private notes).
-/documentation/pre-launch-checklist.md
+# --- Documentation split ------------------------------------------------
+#
+# documentation/ is PUBLIC: anything tracked there ships with the repo and
+# is readable by every customer, auditor, and competitor who clones it.
+#
+# documentation/internal/ is PRIVATE and never tracked. Owner's notes live
+# there — launch plans, funnel checklists, pricing working, outreach
+# lists, internal status. The whole directory is ignored, so a new private
+# note is private by default and nobody has to remember to add a rule for
+# it. That default is the point: the previous per-file rules only worked
+# if you thought to write one before committing.
+#
+# See documentation/README.md.
+/documentation/internal/
+
+# CI/test log artifacts dropped into the docs folder.
+/documentation/*.log
