@@ -42,6 +42,38 @@ func GenerateAnnexIVMarkdownWithRegister(bom types.AIBOM, register types.RiskReg
 // unconditionally, which is false for a local run. The reader is told
 // which artefact they hold.
 func GenerateAnnexIVMarkdownWithAttestation(bom types.AIBOM, register types.RiskRegister, att types.Attestation) string {
+	return GenerateAnnexIVMarkdownWithOptions(bom, register, AnnexIVOptions{Attestation: att})
+}
+
+// AnnexIVOptions controls what goes into the rendered document.
+type AnnexIVOptions struct {
+	Attestation types.Attestation
+
+	// IncludeCostEstimates adds monetary figures — per-resource cost,
+	// spot projections, and rightsizing savings — to § 2(c). Off by
+	// default, which is the important part.
+	//
+	// The hardware and compute description belongs in Annex IV: Section 2
+	// requires the computational resources used to develop and run the
+	// system. What a p4d costs per month does not. That is a FinOps
+	// insight, not a compliance fact, and putting it in this document
+	// carries a cost of its own — the figures are list-price, on-demand,
+	// USD, 730-hours-a-month, and a reader who notices that (any platform
+	// engineer will, in seconds) has just been handed a reason to ask
+	// what *else* in the document is an estimate. The Article 9 risk
+	// register and the ledger provenance cannot afford to sit beside an
+	// easily falsified number.
+	//
+	// So costs stay available to the audiences that want them — the JSON
+	// output and the dashboard, read by engineers — and stay out of the
+	// artefact handed to an auditor unless explicitly requested.
+	IncludeCostEstimates bool
+}
+
+// GenerateAnnexIVMarkdownWithOptions is the full renderer that the three
+// convenience entry points above delegate to.
+func GenerateAnnexIVMarkdownWithOptions(bom types.AIBOM, register types.RiskRegister, opts AnnexIVOptions) string {
+	att := opts.Attestation
 	var sb strings.Builder
 	sb.WriteString("# EU AI Act - Annex IV Technical Documentation\n\n")
 	sb.WriteString(fmt.Sprintf("*Generated: %s*\n\n", time.Now().UTC().Format(time.RFC3339)))
@@ -134,7 +166,14 @@ func GenerateAnnexIVMarkdownWithAttestation(bom types.AIBOM, register types.Risk
 	sb.WriteString("\n")
 
 	// 2(c): Hardware & Infrastructure
-	sb.WriteString("### 2(c) Hardware Requirements & Estimated Monthly Cost (FinOps Telemetry)\n")
+	// § 2(c) describes the compute the system needs, which Annex IV
+	// Section 2 requires. Monetary figures are a separate concern gated
+	// behind AnnexIVOptions.IncludeCostEstimates — see the comment there.
+	if opts.IncludeCostEstimates {
+		sb.WriteString("### 2(c) Compute & Hardware Resources (with cost estimates)\n")
+	} else {
+		sb.WriteString("### 2(c) Compute & Hardware Resources\n")
+	}
 	if len(bom.FinOps) == 0 {
 		sb.WriteString("No specific hardware constraints or GPU requests detected in infrastructure manifests.\n\n")
 	} else {
@@ -146,7 +185,14 @@ func GenerateAnnexIVMarkdownWithAttestation(bom types.AIBOM, register types.Risk
 			sb.WriteString(fmt.Sprintf("- **Resource:** %s\n", fin.Resource))
 			sb.WriteString(fmt.Sprintf("  - **Finding:** %s\n", fin.Description))
 			sb.WriteString(fmt.Sprintf("  - **Severity:** %s\n", fin.Severity))
-			if fin.EstimatedCost != nil {
+			// The instance family is compute description and stays in
+			// regardless; the price attached to it is what the option
+			// gates.
+			if fin.EstimatedCost != nil && !opts.IncludeCostEstimates {
+				sb.WriteString(fmt.Sprintf("  - **Instance family:** %s `%s`\n",
+					fin.EstimatedCost.Cloud, fin.EstimatedCost.InstanceFamily))
+			}
+			if fin.EstimatedCost != nil && opts.IncludeCostEstimates {
 				sb.WriteString(fmt.Sprintf(
 					"  - **Estimated cost:** $%.2f–$%.2f /hr → **$%.0f–$%.0f /month** (%s family `%s`)\n",
 					fin.EstimatedCost.HourlyUSDLow, fin.EstimatedCost.HourlyUSDHigh,
@@ -166,7 +212,7 @@ func GenerateAnnexIVMarkdownWithAttestation(bom types.AIBOM, register types.Risk
 		// FinOps user actually budgets against. Costed-vs-uncosted
 		// counters tell auditors when the headline figure is missing
 		// detections.
-		if est := bom.FinOpsCostEstimate; est != nil && (est.CostedFindings > 0 || est.UncostedFindings > 0) {
+		if est := bom.FinOpsCostEstimate; opts.IncludeCostEstimates && est != nil && (est.CostedFindings > 0 || est.UncostedFindings > 0) {
 			sb.WriteString(fmt.Sprintf("\n**Estimated total monthly cost:** $%.0f–$%.0f %s "+
 				"(across %d costed finding(s); %d additional finding(s) had no catalog match).\n",
 				est.TotalMonthlyUSDLow, est.TotalMonthlyUSDHigh, est.Currency,
@@ -185,7 +231,7 @@ func GenerateAnnexIVMarkdownWithAttestation(bom types.AIBOM, register types.Risk
 		// Wave 11: rightsizing suggestions sit alongside the cost
 		// summary so the auditor reading § 2(c) sees both the current
 		// projection and the cheaper alternative in one place.
-		if len(bom.FinOpsRecommendations) > 0 {
+		if opts.IncludeCostEstimates && len(bom.FinOpsRecommendations) > 0 {
 			sb.WriteString("\n**Rightsizing recommendations:**\n")
 			for _, rec := range bom.FinOpsRecommendations {
 				sb.WriteString(fmt.Sprintf(

@@ -548,3 +548,87 @@ type TransparencyObligation struct {
 	EvidenceIsDetectable bool     `json:"evidenceIsDetectable"`
 	Status               string   `json:"status"`
 }
+
+// --- SPDX 2.3 -------------------------------------------------------------
+//
+// The second SBOM dialect. CycloneDX is the OWASP-flavoured format and
+// what most European security tooling speaks; SPDX is the Linux
+// Foundation / ISO one (ISO/IEC 5962) and the format named in US federal
+// procurement guidance. Neither is a superset of the other, and a
+// procurement questionnaire that asks for "an SPDX SBOM" is not satisfied
+// by CycloneDX however good it is.
+//
+// 2.3 rather than 3.0 deliberately. SPDX 3.0 introduced a genuinely
+// better-suited AI profile — first-class fields for model metadata,
+// energy consumption, safety risk assessment — but it is a JSON-LD
+// element graph that comparatively little tooling ingests today. The
+// point of emitting SPDX at all is to be *consumed*, so this targets the
+// version consumers actually parse. The AI-specific data that 3.0 would
+// model natively is carried here in annotations and external references.
+
+type SPDXDocument struct {
+	SPDXVersion       string                 `json:"spdxVersion"`
+	DataLicense       string                 `json:"dataLicense"`
+	SPDXID            string                 `json:"SPDXID"`
+	Name              string                 `json:"name"`
+	DocumentNamespace string                 `json:"documentNamespace"`
+	CreationInfo      SPDXCreationInfo       `json:"creationInfo"`
+	Packages          []SPDXPackage          `json:"packages"`
+	Relationships     []SPDXRelationship     `json:"relationships"`
+	ExtractedLicenses []SPDXExtractedLicense `json:"hasExtractedLicensingInfos,omitempty"`
+}
+
+type SPDXCreationInfo struct {
+	Created  string   `json:"created"`
+	Creators []string `json:"creators"`
+	Comment  string   `json:"comment,omitempty"`
+}
+
+type SPDXPackage struct {
+	SPDXID           string            `json:"SPDXID"`
+	Name             string            `json:"name"`
+	VersionInfo      string            `json:"versionInfo,omitempty"`
+	DownloadLocation string            `json:"downloadLocation"`
+	FilesAnalyzed    bool              `json:"filesAnalyzed"`
+	LicenseConcluded string            `json:"licenseConcluded"`
+	LicenseDeclared  string            `json:"licenseDeclared"`
+	LicenseComments  string            `json:"licenseComments,omitempty"`
+	CopyrightText    string            `json:"copyrightText"`
+	Supplier         string            `json:"supplier,omitempty"`
+	PrimaryPurpose   string            `json:"primaryPackagePurpose,omitempty"`
+	ExternalRefs     []SPDXExternalRef `json:"externalRefs,omitempty"`
+	Annotations      []SPDXAnnotation  `json:"annotations,omitempty"`
+	Comment          string            `json:"comment,omitempty"`
+}
+
+type SPDXExternalRef struct {
+	Category string `json:"referenceCategory"`
+	Type     string `json:"referenceType"`
+	Locator  string `json:"referenceLocator"`
+	Comment  string `json:"comment,omitempty"`
+}
+
+type SPDXAnnotation struct {
+	Annotator         string `json:"annotator"`
+	AnnotationDate    string `json:"annotationDate"`
+	AnnotationType    string `json:"annotationType"`
+	AnnotationComment string `json:"comment"`
+}
+
+type SPDXRelationship struct {
+	SPDXElementID      string `json:"spdxElementId"`
+	RelatedSPDXElement string `json:"relatedSpdxElement"`
+	RelationshipType   string `json:"relationshipType"`
+}
+
+// SPDXExtractedLicense carries a licence that is not a recognised SPDX
+// identifier. Vendor strings like "Proprietary (OpenAI)" are not valid
+// SPDX expressions, and emitting one in licenseDeclared would produce a
+// document that fails validation — so they become LicenseRef entries
+// with the original text preserved here.
+type SPDXExtractedLicense struct {
+	LicenseID     string `json:"licenseId"`
+	ExtractedText string `json:"extractedText"`
+	Name          string `json:"name,omitempty"`
+	Comment       string `json:"comment,omitempty"`
+}

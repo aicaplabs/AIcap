@@ -156,13 +156,20 @@ func main() {
 			cdx := compliance.GenerateCycloneDXBOMWithRegister(bom, register)
 			cdxJSON, _ := json.MarshalIndent(cdx, "", "  ")
 			fmt.Println(string(cdxJSON))
+		} else if opts.WantSPDX {
+			doc := compliance.GenerateSPDXDocument(bom, register)
+			spdxJSON, _ := json.MarshalIndent(doc, "", "  ")
+			fmt.Println(string(spdxJSON))
 		} else {
 			fmt.Println(string(bomJSON))
 		}
 
 		if !opts.NoAnnexIV {
-			annexIV := compliance.GenerateAnnexIVMarkdownWithAttestation(
-				bom, register, types.Attestation{Anchored: false})
+			annexIV := compliance.GenerateAnnexIVMarkdownWithOptions(bom, register,
+				compliance.AnnexIVOptions{
+					Attestation:          types.Attestation{Anchored: false},
+					IncludeCostEstimates: opts.IncludeCosts,
+				})
 
 			fmt.Printf("\n[+] Article 9 risk register: %d finding(s) — High: %d, Medium: %d, Low: %d\n",
 				register.Summary.Total, register.Summary.High,
@@ -508,6 +515,11 @@ type cliOptions struct {
 	ImageRefs     []string
 	TarballPaths  []string
 	WantCycloneDX bool
+	// WantSPDX emits an SPDX 2.3 document instead of the AIcap JSON.
+	// Separate from WantCycloneDX because the two formats are not
+	// interchangeable — a procurement questionnaire asking for SPDX is
+	// not satisfied by CycloneDX.
+	WantSPDX bool
 	// AnnexIVPath, when non-empty, is where the Annex IV markdown draft
 	// is written. Empty means "don't write a file"; the draft is still
 	// generated and summarised on stdout.
@@ -516,6 +528,12 @@ type cliOptions struct {
 	// that only want the BOM and don't want the OSV lookups that
 	// enrichment performs.
 	NoAnnexIV bool
+	// IncludeCosts adds GPU cost estimates and rightsizing suggestions to
+	// the Annex IV draft. Off by default: the compute description belongs
+	// in a compliance document, the price tag does not, and a list-price
+	// figure beside the risk register invites a reader to discount both.
+	// The JSON output carries the cost data either way.
+	IncludeCosts bool
 }
 
 // directory (defaults to "."). Recognised flags:
@@ -523,8 +541,10 @@ type cliOptions struct {
 //	--image <ref>      Remote registry reference. Repeatable.
 //	--image-tar <path> Local docker-save tarball. Repeatable.
 //	--cyclonedx        Emit CycloneDX-formatted SBOM instead of AICAP JSON.
+//	--spdx             Emit an SPDX 2.3 SBOM instead of AICAP JSON.
 //	--annex-iv <path>  Write the Annex IV markdown draft to <path>.
 //	--no-annex-iv      Skip Annex IV generation (and its OSV lookups).
+//	--finops           Include GPU cost estimates in the Annex IV draft.
 //
 // Unknown flags are ignored to preserve forward compatibility with
 // the GitHub Action wrapper: a new action.yml release can pass new
@@ -547,6 +567,8 @@ func parseCLIArgs(args []string) cliOptions {
 			}
 		case "--cyclonedx":
 			opts.WantCycloneDX = true
+		case "--spdx":
+			opts.WantSPDX = true
 		case "--annex-iv":
 			if i+1 < len(args) {
 				opts.AnnexIVPath = args[i+1]
@@ -554,6 +576,8 @@ func parseCLIArgs(args []string) cliOptions {
 			}
 		case "--no-annex-iv":
 			opts.NoAnnexIV = true
+		case "--finops":
+			opts.IncludeCosts = true
 		default:
 			if strings.HasPrefix(arg, "--") {
 				// Unknown flag — skip it AND its value if the

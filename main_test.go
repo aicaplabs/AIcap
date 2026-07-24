@@ -190,3 +190,13 @@ func TestSyncStatusMessage_KnownRejectionsNameTheirCause(t *testing.T) {
 		t.Errorf("503 message = %q, want status code surfaced", got)
 	}
 }
+
+func TestParseCLIArgs_FinOpsFlag(t *testing.T) {
+	// Cost figures are opt-in for the compliance document.
+	if parseCLIArgs([]string{"./src"}).IncludeCosts {
+		t.Error("cost estimates must be off by default in the Annex IV draft")
+	}
+	if !parseCLIArgs([]string{"./src", "--finops"}).IncludeCosts {
+		t.Error("--finops did not enable cost estimates")
+	}
+}

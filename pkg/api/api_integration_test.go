@@ -3,8 +3,8 @@
 // Integration tests for pkg/api. Kept behind the `integration` build tag
 // because they require a reachable Postgres. Run with:
 //
-//   TEST_DATABASE_URL=postgres://aicap:aicap@localhost:5432/aicap?sslmode=disable \
-//     go test -tags=integration ./pkg/api/...
+//	TEST_DATABASE_URL=postgres://aicap:aicap@localhost:5432/aicap?sslmode=disable \
+//	  go test -tags=integration ./pkg/api/...
 //
 // `docker compose up -d db` from the repo root starts a matching database.
 // The default `go test ./...` path ignores these so laptops without Docker
@@ -481,7 +481,9 @@ func TestGenerateKey_OneTimeReveal(t *testing.T) {
 			t.Fatalf("POST %s: %v", path, err)
 		}
 		defer resp.Body.Close()
-		var body struct{ APIKey string `json:"apiKey"` }
+		var body struct {
+			APIKey string `json:"apiKey"`
+		}
 		json.NewDecoder(resp.Body).Decode(&body)
 		return resp.StatusCode, body.APIKey
 	}
@@ -1264,12 +1266,17 @@ func TestCustomerPortal_CORSPreflight(t *testing.T) {
 	}
 }
 
-// TestSaveProof_AnnexIVContainsCostEstimate (Wave 7b): when the BOM
-// carries a populated FinOpsCostEstimate, the saved Annex IV markdown
-// must surface the per-finding cost line + the BOM-level total + the
-// assumptions block. Auditors should never see the dollar figure
-// without the disclaimer that disclosed the assumptions.
-func TestSaveProof_AnnexIVContainsCostEstimate(t *testing.T) {
+// TestSaveProof_AnnexIVDescribesComputeWithoutCost (Wave 23, replacing
+// the Wave 7b cost-in-the-document test).
+//
+// The saved Annex IV is the artefact handed to an auditor — it is what
+// the share link resolves to and what the PDF export renders. So it
+// describes the compute (an Annex IV Section 2 requirement) and omits
+// the price (not one). A list-price estimate sitting beside the Article
+// 9 register gives a reader a reason to discount both; engineers who
+// want the figures read them from the BOM JSON, which still carries
+// them in full.
+func TestSaveProof_AnnexIVDescribesComputeWithoutCost(t *testing.T) {
 	srv, db := setup(t)
 	userID := "00000000-0000-0000-0000-000000000600"
 	token := seedAPIKey(t, db, userID, "pro")
@@ -1305,18 +1312,40 @@ func TestSaveProof_AnnexIVContainsCostEstimate(t *testing.T) {
 		userID, "cost-1").Scan(&md); err != nil {
 		t.Fatalf("read annex iv: %v", err)
 	}
+	// The compute description is required and must be present.
 	for _, want := range []string{
-		"Estimated cost:",
-		"$32.77",
-		"AWS family `p4d.`",
-		"Estimated total monthly cost:",
-		"1 costed finding(s)",
-		"Assumptions:",
-		"730 hours/month",
+		"Compute & Hardware Resources",
+		"infra.tf",
+		"Instance family:",
+		"p4d.",
 	} {
 		if !strings.Contains(md, want) {
-			t.Errorf("Annex IV missing FinOps cost line %q", want)
+			t.Errorf("saved Annex IV dropped the compute description: missing %q", want)
 		}
+	}
+	// The money must not be.
+	for _, unwanted := range []string{
+		"Estimated cost:",
+		"$32.77",
+		"Estimated total monthly cost:",
+		"costed finding(s)",
+		"Rightsizing recommendations",
+	} {
+		if strings.Contains(md, unwanted) {
+			t.Errorf("saved Annex IV leaked a cost figure (%q) into the auditor-facing document", unwanted)
+		}
+	}
+
+	// And the BOM JSON persisted alongside it must still carry the cost
+	// data — the split moves the figures, it does not discard them.
+	var bomJSON string
+	if err := db.QueryRow(
+		`SELECT ai_bom_json::text FROM proof_drills WHERE user_id = $1 AND commit_sha = $2`,
+		userID, "cost-1").Scan(&bomJSON); err != nil {
+		t.Fatalf("read bom json: %v", err)
+	}
+	if !strings.Contains(bomJSON, "finOpsCostEstimate") {
+		t.Error("cost data was dropped from the persisted BOM; it should only be absent from the document")
 	}
 }
 

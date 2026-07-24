@@ -9,6 +9,63 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 Trial of new features lands on `development` first. Once a stable
 batch is ready, it is merged to `main` and tagged.
 
+## [1.7.0] — 2026-07-24 — SPDX output, and cost figures out of the compliance document
+
+A short release with one addition and one subtraction. The subtraction
+is the more consequential of the two.
+
+### Added
+
+- **SPDX 2.3 SBOM export** (`--spdx`). CycloneDX and SPDX are the two
+  halves of the SBOM world and neither subsumes the other — a
+  procurement questionnaire asking for "an SPDX SBOM" is not satisfied
+  by a CycloneDX file however complete it is. Targets 2.3 rather than
+  3.0 deliberately: 3.0's AI profile models this product's output
+  better on paper, but it is a JSON-LD element graph that little
+  tooling ingests today, and the point of emitting SPDX at all is to be
+  consumed. The AI-specific data 3.0 would carry natively travels in
+  annotations and external references.
+
+  Three correctness problems the AI-BOM's data makes acute are handled:
+  identifiers are sanitised to the `SPDXRef-[a-zA-Z0-9.-]+` grammar
+  **with collision disambiguation**, since two `Hardcoded Model`
+  findings sharing an SPDXID would silently merge two components in the
+  consumer's view; vendor licence strings such as `Proprietary (OpenAI)`
+  become `LicenseRef` entries with the original text preserved, rather
+  than being passed off as valid SPDX expressions; and
+  `licenseConcluded` stays `NOASSERTION` throughout, because "concluded"
+  asserts a legal determination and AIcap reads what registries report.
+
+### Changed
+
+- **Cost estimates are no longer in the Annex IV document by default.**
+  Annex IV Section 2 requires a description of the computational
+  resources a system uses. It does not require what those resources
+  cost. The two shared a heading, which put a list-price, on-demand,
+  USD, 730-hours-a-month estimate directly beside the Article 9 risk
+  register and the ledger provenance.
+
+  That placement carried a cost the estimate itself does not. Any
+  platform engineer reads "$23,922/month for a p4d" and knows within
+  seconds that it ignores committed-use discounts, savings plans,
+  reserved instances, and regional variance — and having found one
+  easily challenged number, has every reason to ask what else in the
+  document is a guess. The risk register and the provenance claims are
+  the parts that have to be believed.
+
+  So § 2(c) becomes "Compute & Hardware Resources" and always describes
+  the hardware, including the detected instance family. Cost figures,
+  spot projections, and rightsizing recommendations move behind
+  `--finops`, off by default. The JSON output and the dashboard keep the
+  cost data unconditionally — their audience is engineers, who can weigh
+  a list-price estimate for what it is.
+
+- **Positioning.** The README no longer describes AIcap as a
+  "compliance and FinOps scanner". That was two products in one
+  sentence, sold to two different buyers with two different budgets.
+  Compute telemetry is a capability underneath a compliance product,
+  not a co-headline.
+
 ## [1.6.0] — 2026-07-24 — Regulatory breadth: Article 5, Article 50, CycloneDX advisories
 
 v1.5.0 closed the gaps in what the scanner could *see*. This release
