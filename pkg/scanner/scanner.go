@@ -28,7 +28,24 @@ var targetModels []string
 
 var modelLicenseMap map[string]types.LicenseMapping
 
-//go:embed libraries.json models.json licenses.json
+// modelFamily is a compiled entry from model_families.json. Families
+// exist because a flat list of literal model names (models.json) goes
+// stale the instant a vendor ships a new generation — and a stale model
+// list in a compliance scanner is not a cosmetic problem: the codebase
+// scans clean, reports no AI components, and that verdict gets written
+// into the audit ledger. Patterns keep matching across releases.
+type modelFamily struct {
+	Name    string `json:"name"`
+	Pattern string `json:"pattern"`
+	Vendor  string `json:"vendor"`
+	License string `json:"license"`
+
+	re *regexp.Regexp
+}
+
+var modelFamilies []modelFamily
+
+//go:embed libraries.json models.json licenses.json model_families.json
 var embeddedFiles embed.FS
 
 func init() {
@@ -77,6 +94,58 @@ func init() {
 			log.Printf("Error parsing licenses.json: %v. Using defaults.", err)
 		}
 	}
+
+	famFile, err := embeddedFiles.ReadFile("model_families.json")
+	if err != nil {
+		log.Println("Could not load model_families.json; falling back to literal model matching only.")
+		return
+	}
+	if err := loadModelFamilies(famFile); err != nil {
+		log.Printf("Error parsing model_families.json: %v. Falling back to literal model matching only.", err)
+	}
+}
+
+// loadModelFamilies parses and compiles a model-family catalog, replacing
+// whatever is currently loaded. Split out from init so it can be driven
+// by a test or a remote catalog refresh.
+//
+// A family whose pattern fails to compile is skipped with a log line
+// rather than aborting the whole catalog — one bad regex should cost us
+// one family, not every family.
+func loadModelFamilies(data []byte) error {
+	var doc struct {
+		Families []modelFamily `json:"families"`
+	}
+	if err := json.Unmarshal(data, &doc); err != nil {
+		return err
+	}
+
+	compiled := make([]modelFamily, 0, len(doc.Families))
+	for _, fam := range doc.Families {
+		// (?i) — model identifiers are written in every casing:
+		// "GPT-4o", "Claude-Sonnet-4-5", "meta-llama/Llama-3.1-8B".
+		re, err := regexp.Compile("(?i)" + fam.Pattern)
+		if err != nil {
+			log.Printf("Skipping model family %q: bad pattern: %v", fam.Name, err)
+			continue
+		}
+		fam.re = re
+		compiled = append(compiled, fam)
+	}
+	modelFamilies = compiled
+	return nil
+}
+
+// matchModelFamily returns the first family whose pattern matches the
+// literal, if any. Callers must already have ruled the literal out as
+// prose (see isTargetModelLiteral).
+func matchModelFamily(val string) (modelFamily, bool) {
+	for _, fam := range modelFamilies {
+		if fam.re != nil && fam.re.MatchString(val) {
+			return fam, true
+		}
+	}
+	return modelFamily{}, false
 }
 
 // LookupLibrary returns the catalog metadata for a known AI library
@@ -292,6 +361,20 @@ func PerformScan(scanDir string) types.AIBOM {
 						hfID = mapping.HFID
 					}
 					break
+				}
+			}
+
+			// Fall back to the family's licence when licenses.json has
+			// no entry — that map is keyed by specific model names and
+			// so goes stale for exactly the same reason the flat model
+			// list did. Open-weight families carry an empty licence
+			// here on purpose: the real licence varies per checkpoint,
+			// so leaving it blank keeps the Hugging Face lookup (and
+			// the visible gap in the report) rather than asserting
+			// something we can't stand behind.
+			if bom.Dependencies[i].License == "" && hfID == "" {
+				if fam, ok := matchModelFamily(val); ok && fam.License != "" {
+					bom.Dependencies[i].License = fam.License
 				}
 			}
 
@@ -518,6 +601,12 @@ func parsePackageJson(filePath string) []types.AIDependency {
 // sentences about models. Real identifiers (gpt-4,
 // claude-3-opus-20240229, meta-llama/Meta-Llama-3-8B) never contain
 // whitespace, so any literal with whitespace is treated as prose.
+//
+// Two matchers run: the literal list from models.json (exact, curated)
+// and the family patterns from model_families.json (generational). The
+// family pass is what keeps this working when a vendor ships a new model
+// generation — without it, the scanner reports a codebase using a
+// current model as having no AI components at all.
 func isTargetModelLiteral(val string) bool {
 	if strings.ContainsAny(val, " \t\r\n") {
 		return false
@@ -527,7 +616,8 @@ func isTargetModelLiteral(val string) bool {
 			return true
 		}
 	}
-	return false
+	_, ok := matchModelFamily(val)
+	return ok
 }
 
 // pythonScanContext parameterises the Python line scanner so the same
