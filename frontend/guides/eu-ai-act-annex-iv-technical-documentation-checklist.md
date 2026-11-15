@@ -8,8 +8,10 @@ date: 2026-07-06
 
 If you provide a **high-risk AI system** in the EU, Article 11 of the AI Act
 requires technical documentation *before* the system goes on the market — and
-Annex IV defines exactly what that documentation must contain. From
-**2 August 2026**, this stops being a future obligation.
+Annex IV defines exactly what that documentation must contain. For
+stand-alone (Annex III) high-risk systems the obligation applies from
+**2 December 2027**; for AI in regulated products (Annex I), from
+**2 August 2028**.
 
 This checklist walks through every Annex IV section from an engineering
 perspective: what evidence satisfies it, and whether it can be generated from
@@ -116,7 +118,16 @@ auditor sees "we looked and found nothing automated" rather than silence.
 
 ## Timeline reality check
 
-The obligations for most high-risk systems apply from **2 August 2026**.
+The high-risk obligations were originally due to apply from 2 August 2026.
+Regulation (EU) 2026/1744 (the "Digital Omnibus on AI", published 24 July
+2026) moved them: **2 December 2027** for Annex III systems, **2 August
+2028** for Annex I systems, and 2 August 2030 for high-risk systems
+intended for use by public authorities. A system already on the market
+before its date comes into scope when its design changes significantly
+afterwards.
+
 Documentation must exist *before* market placement, and Article 99 penalties
 for non-compliance with high-risk obligations reach **€15 million or 3% of
-global turnover**. Starting the mechanical half today costs one CI job.
+global turnover**. Starting the mechanical half today costs one CI job — and
+a record that has been accumulating since before the application date is a
+better answer to "since when?" than one that starts the week before.
