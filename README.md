@@ -2,13 +2,13 @@
 
 [![GitHub Marketplace](https://img.shields.io/badge/Marketplace-AIcap-indigo.svg)](https://github.com/marketplace/actions/continuous-ai-bom-scanner)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
-[![Go Tests](https://img.shields.io/badge/tests-passing-brightgreen.svg)]()
+[![Tests](https://github.com/aicaplabs/AIcap/actions/workflows/go-test.yml/badge.svg?branch=main)](https://github.com/aicaplabs/AIcap/actions/workflows/go-test.yml)
 [![CycloneDX](https://img.shields.io/badge/SBOM-CycloneDX%201.5-orange.svg)]()
 [![OWASP ML](https://img.shields.io/badge/OWASP-ML%20Top%2010-red.svg)]()
 
 **AIcap** is the developer-first EU AI Act compliance scanner for the AI supply chain. It shifts compliance left into CI/CD: inventory every AI component, cross-reference it against live vulnerability data, and generate audit-ready Annex IV documentation — all from a single binary in your own pipeline.
 
-> **Why AIcap?** Every AI system shipped to the EU market must comply with the AI Act by August 2026. AIcap automates the hardest parts: dependency tracking, model governance, license auditing, and Annex IV documentation — so your team ships faster, not slower.
+> **Why AIcap?** The EU AI Act applies in stages. Article 5 prohibitions have applied since February 2025 and Article 50 transparency duties since 2 August 2026; the high-risk regime, including Annex IV technical documentation, applies from 2 December 2027 (Annex III systems) and 2 August 2028 (Annex I), after Regulation (EU) 2026/1744 moved it. AIcap automates the mechanical parts: dependency tracking, model governance, license auditing, and the Annex IV draft — so the evidence exists, and stays current, before anyone asks for it.
 
 ---
 
@@ -49,7 +49,7 @@
 
 ### ⚖️ Compliance Automation
 - **EU AI Act Annex IV** — Auto-generates technical documentation with risk register, licensing summary, and policy compliance
-- **Article 50 transparency duties** — Flags the four disclosure obligations that bite on 2 Aug 2026 (tell users they're talking to an AI; mark synthetic output machine-readably; inform people subject to emotion/biometric analysis; disclose deep fakes), with evidence of any watermarking or C2PA provenance found in the dependency graph
+- **Article 50 transparency duties** — Flags the four disclosure obligations that have applied since 2 Aug 2026 (tell users they're talking to an AI; mark synthetic output machine-readably; inform people subject to emotion/biometric analysis; disclose deep fakes), with evidence of any watermarking or C2PA provenance found in the dependency graph
 - **Article 5 prohibited-practice indicators** — Flags components whose capabilities fall within the scope of the prohibitions already in force since 2 Feb 2025 (emotion inference, biometric identification and categorisation). Indicators with the legal question attached, never verdicts: whether a prohibition applies turns on deployment context no scanner can observe
 - **OWASP ML Top 10** — Cross-references dependencies with known ML attack vectors (supply chain, prompt injection, model theft, data poisoning)
 - **Policy-as-Code** — `.aicap.yml` configuration for model governance (blocked/allowed models, risk thresholds, license restrictions)
@@ -72,7 +72,7 @@ reader to discount both. They stay in the JSON output and the dashboard, and
 enter the Annex IV draft only when you ask.
 
 ### 🔒 Immutable Audit Ledger (Pro)
-- SHA-256 hash chain over every scan (commit + BOM + documentation), so editing,
+- SHA-256 hash chain over every scan (commit SHA + AI-BOM), so editing,
   reordering, or deleting any historical entry breaks verification at every later link
 - **Ed25519 signature on every entry**, with the key held in the application
   environment and never in the database — so possession of the database is not
@@ -101,8 +101,19 @@ curl "https://<backend>/api/ledger/public-key"
 
 Base64-decode `attestation.signedMessage` and `attestation.signature`, then
 verify them against that public key with any Ed25519 implementation. A valid
-signature proves the record was produced by AIcap and has not been altered
-since — including by the party who sent you the link.
+signature proves that AIcap recorded a ledger entry for this commit with this
+chain hash, and that the entry has not been altered since — including by the
+party who sent you the link.
+
+**What the signature does not cover yet.** The chain hash is computed over
+the commit SHA and the AI-BOM. The Annex IV text and the risk register shown
+in a shared report are rendered from that BOM when the entry is written and
+stored beside it, but they are not inside the hash, and the public report
+does not include the BOM itself. So today the signature attributes the *scan
+record* to AIcap; it does not by itself prove that the rendered document you
+are reading is byte-for-byte what was written at scan time. Binding the
+rendered document into the signed entry is the next change to the ledger
+format.
 
 The hash chain alone could not tell you that: it proves the entries are
 consistent with each other, not who wrote them. Pin the public key out of band
@@ -311,34 +322,27 @@ The CLI scanner is **free forever**. AIcap Pro adds:
 ## 🧪 Testing
 
 ```bash
-# Run all 47 tests
-go test -v ./...
+# Unit tests — no database, no Docker
+go test ./...
 
-# Run specific test category
-go test -v -run "TestParseTerraform" ./...
-go test -v -run "TestEnrichWithOWASP" ./...
-go test -v -run "TestParseEnvFile" ./...
+# Integration tests — the HTTP API, ledger, and Stripe webhook against Postgres
+docker compose up -d db
+TEST_DATABASE_URL='postgres://aicap:aicap@localhost:5432/aicap?sslmode=disable' \
+  go test -tags=integration -p 1 ./...
+
+# Frontend unit tests
+cd frontend && npm test
 ```
 
-**Test Coverage:**
-| Category | Tests |
+| Suite | Covers |
 |---|---|
-| Python parsers (requirements, imports, source) | 6 |
-| Package.json parser | 2 |
-| Go AST parser | 3 |
-| Go module parser | 3 |
-| PyProject.toml parser | 3 |
-| Dockerfile parser | 4 |
-| Terraform FinOps parser | 4 |
-| Helm values parser | 3 |
-| .env secret scanner | 4 |
-| Policy engine | 5 |
-| CycloneDX SBOM | 3 |
-| OWASP ML enrichment | 2 |
-| Annex IV generation | 1 |
-| Integration tests | 2 |
-| Serialization | 1 |
-| **Total** | **47** |
+| `pkg/scanner` | Manifest, lockfile, notebook, source, Dockerfile and IaC parsers; model-family matching; false-positive guards |
+| `pkg/compliance` | Risk register, OSV enrichment, Annex IV rendering, Article 5 and Article 50, CycloneDX, SPDX |
+| `pkg/ledger`, `pkg/drift`, `pkg/finops`, `pkg/imagescan` | Signing and verification, scan-to-scan comparison, GPU catalog, container-layer scanning |
+| `pkg/api` (integration) | Auth, tenant scoping, rate limits, hash chain, share links, Stripe lifecycle |
+| `frontend/src` | Report rendering, PDF export, auth-token refresh, dashboard components |
+
+All three suites run in CI on every push and pull request.
 
 ---
 

@@ -6,8 +6,9 @@ date: 2026-07-06
 
 # Article 53: documentation duties for GPAI model providers
 
-Most EU AI Act coverage fixates on high-risk *systems* and the August 2026
-date. But if you provide a **general-purpose AI model** — including a
+Most EU AI Act coverage fixates on high-risk *systems* and their application
+date — now 2 December 2027, after the Digital Omnibus moved it from August
+2026. But if you provide a **general-purpose AI model** — including a
 fine-tune of someone else's — a separate obligation set in Article 53 has
 already applied **since 2 August 2025**. If that describes you, this is not
 a countdown; you are in the applicability window now.

@@ -40,7 +40,7 @@ export default function MarketingFooter() {
         <div>
           <h3 className="font-bold text-slate-900 mb-3">Compliance</h3>
           <ul className="space-y-2 text-slate-600">
-            <li>EU AI Act (Aug 2026)</li>
+            <li>EU AI Act (Reg. 2024/1689)</li>
             <li>CycloneDX 1.5</li>
             <li>OWASP ML Top 10</li>
             <li>MITRE ATLAS</li>

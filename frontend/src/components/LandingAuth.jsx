@@ -2,28 +2,33 @@ import React, { useState } from 'react';
 import { Shield, CheckCircle, AlarmClock, MailCheck } from 'lucide-react';
 
 import { supabase } from '../lib/supabase.js';
-import { daysUntilAIAct } from '../lib/deadline.js';
+import { daysUntilHighRisk } from '../lib/deadline.js';
 import SampleReportSection from './SampleReportSection.jsx';
 import PricingSection from './PricingSection.jsx';
 import FAQSection from './FAQSection.jsx';
 import MarketingFooter from './MarketingFooter.jsx';
 
-// Deadline urgency chip: counts down to 2 August 2026 (EU AI Act
-// application date) and flips to "in force" copy once it passes, so
-// the landing page never shows a stale countdown.
+// Deadline chip: counts down to 2 December 2027, when the high-risk
+// regime (and with it Annex IV) applies to Annex III systems, and
+// switches to past-tense copy once that date passes.
+//
+// Both strings name the obligation and the date. The previous version
+// said "EU AI Act obligations are now in force" with neither — which
+// became false for the high-risk regime the moment Regulation (EU)
+// 2026/1744 moved it, and nothing on the page could tell a reader so.
 function DeadlineBadge() {
-  const days = daysUntilAIAct();
+  const days = daysUntilHighRisk();
   if (days > 0) {
     return (
       <div className="inline-flex items-center gap-2 px-3 py-1 bg-amber-100 text-amber-800 text-sm font-bold rounded-full">
         <AlarmClock className="w-4 h-4" />
-        {days} day{days === 1 ? '' : 's'} until EU AI Act obligations apply — 2 August 2026
+        {days} day{days === 1 ? '' : 's'} until high-risk obligations apply — 2 December 2027
       </div>
     );
   }
   return (
     <div className="inline-flex items-center gap-2 px-3 py-1 bg-red-100 text-red-700 text-sm font-bold rounded-full">
-      <AlarmClock className="w-4 h-4" /> EU AI Act obligations are now in force
+      <AlarmClock className="w-4 h-4" /> High-risk obligations have applied since 2 December 2027
     </div>
   );
 }
@@ -83,7 +88,7 @@ export default function LandingAuth() {
             Secure your AI supply chain. <span className="text-indigo-600">Automate compliance.</span>
           </h2>
           <p className="text-lg text-slate-600 leading-relaxed">
-            Every AI system shipped to the EU market must comply with the AI Act by August 2026. AIcap runs natively inside your CI/CD pipeline to generate your AI-BOM, track risks, and maintain an Immutable Audit Ledger.
+            The EU AI Act's Article 50 transparency duties have applied since 2 August 2026, and the high-risk regime — including Annex IV technical documentation — applies from 2 December 2027. AIcap runs natively inside your CI/CD pipeline to generate your AI-BOM, track risks, and maintain an Immutable Audit Ledger.
           </p>
           <div className="space-y-4 pt-4">
             <div className="flex items-start gap-3">
