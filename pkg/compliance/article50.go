@@ -6,8 +6,13 @@
 // asks something narrower and more actionable: "does the person on the
 // other side know?"
 //
-// Four duties, all applying from 2 August 2026 — the same date as the
-// high-risk obligations, which makes them the same deadline conversation:
+// Four duties, all applying from 2 August 2026. That was originally the
+// high-risk date too; Regulation (EU) 2026/1744 then deferred the
+// high-risk regime to 2 December 2027 (Annex III) and 2 August 2028
+// (Annex I) and left Article 50 where it was. So these are no longer
+// "the same deadline conversation" as Annex IV — they are the part of
+// the Act that binds a system *now*, and the rendered section has to say
+// so rather than borrow the high-risk date:
 //
 //	50(1) tell people they are talking to an AI
 //	50(2) mark synthetic output machine-readably
@@ -163,8 +168,12 @@ func RenderArticle50Markdown(obligations []types.TransparencyObligation) string 
 	sb.WriteString("This system attracts **")
 	sb.WriteString(itoa(len(obligations)))
 	sb.WriteString(" transparency obligation(s)** under EU AI Act Article 50,\n")
-	sb.WriteString("which applies from **2 August 2026** — the same date as the high-risk\n")
-	sb.WriteString("obligations documented above.\n\n")
+	sb.WriteString("which has applied since **2 August 2026**. The high-risk obligations\n")
+	sb.WriteString("documented above apply later — from 2 December 2027 for Annex III systems\n")
+	sb.WriteString("and 2 August 2028 for Annex I systems (Regulation (EU) 2026/1744) — so\n")
+	sb.WriteString("these duties are not waiting on that date. One transitional rule: for a\n")
+	sb.WriteString("generative system already on the market before 2 August 2026, the\n")
+	sb.WriteString("Article 50(2) marking duty applies from 2 December 2026.\n\n")
 
 	sb.WriteString("> Article 50 is about whether the person on the other side knows. Unlike\n")
 	sb.WriteString("> the high-risk regime it does not depend on classification, and unlike\n")

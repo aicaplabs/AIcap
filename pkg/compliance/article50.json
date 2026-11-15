@@ -1,7 +1,7 @@
 {
   "_meta": {
     "description": "EU AI Act Article 50 transparency obligations, keyed by the components whose presence indicates the obligation may apply. Grouped by obligation rather than by component, so a project with eight LLM libraries gets one duty to read, not eight.",
-    "applies_from": "2 August 2026 — the same date as the high-risk obligations.",
+    "applies_from": "2 August 2026. Not moved by Regulation (EU) 2026/1744, which deferred the high-risk obligations to 2 December 2027 (Annex III) and 2 August 2028 (Annex I). One transitional rule: for generative systems already placed on the market before 2 August 2026, the Article 50(2) marking duty applies from 2 December 2026.",
     "what_this_is_not": "Not a determination that an obligation is unmet. Article 50 duties attach to systems that interact with natural persons, or that generate content shown to them. A static scan sees the capability, not the audience. Each obligation therefore carries the question that resolves it.",
     "evidence_model": "Where a duty can be discharged by a technical control that leaves a trace in the dependency graph — content watermarking, C2PA provenance — the catalog names those markers so the report can show evidence rather than only a gap. Absence of a marker is not proof the duty is unmet: disclosure is often a UI string or an editorial process, neither of which appears in a manifest."
   },

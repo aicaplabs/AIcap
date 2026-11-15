@@ -170,7 +170,20 @@ func TestRenderArticle50Markdown_StatesTheDateAndTheLimits(t *testing.T) {
 	md := RenderArticle50Markdown(DetectTransparencyObligations(a50bom("openai", "diffusers")))
 
 	if !strings.Contains(md, "2 August 2026") {
-		t.Error("the applicability date must appear — it is the same deadline as the high-risk regime")
+		t.Error("the applicability date must appear")
+	}
+	// Regulation (EU) 2026/1744 deferred the high-risk regime to
+	// 2 December 2027 and left Article 50 where it was. The section used
+	// to say Article 50 applied on "the same date as the high-risk
+	// obligations", and went on saying it in every generated report for
+	// months after that stopped being true.
+	if strings.Contains(md, "same date as the high-risk") {
+		t.Error("Article 50 and the high-risk regime no longer share an application date")
+	}
+	for _, want := range []string{"2 December 2027", "2 August 2028", "2 December 2026"} {
+		if !strings.Contains(md, want) {
+			t.Errorf("section must state %s (amended Article 113 / Article 111)", want)
+		}
 	}
 	if !strings.Contains(md, "not a clearance") {
 		t.Error("the section must say that absence of a duty is not a clearance")
