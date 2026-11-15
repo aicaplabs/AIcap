@@ -9,6 +9,42 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 Trial of new features lands on `development` first. Once a stable
 batch is ready, it is merged to `main` and tagged.
 
+### Fixed
+
+- **The site, README and guides stated the wrong application date for the
+  high-risk regime.** Regulation (EU) 2026/1744 (the "Digital Omnibus on
+  AI", OJ L 24.7.2026) moved Chapter III, Sections 1–3 — and with them
+  Article 11 and Annex IV — from 2 August 2026 to 2 December 2027 for
+  Annex III systems and to 2 August 2028 for Annex I systems. The landing
+  page went on counting down to the old date and then announced that "EU
+  AI Act obligations are now in force"; the hero copy said every AI system
+  shipped to the EU had to comply by August 2026, which was not accurate
+  even before the amendment. Corrected in the landing page, deadline badge,
+  page metadata, social-preview image, README, and three guides. The
+  penalties guide is rewritten against the amended text and now leads with
+  what *is* enforceable today (Article 5, Article 50, GPAI duties).
+  Not yet corrected: the Article 50 section of generated reports still says
+  "the same date as the high-risk obligations". That string is compiled into
+  the binary and ships with the next release.
+- **README overstated what the ledger signature covers.** It said the hash
+  chain covered "commit + BOM + documentation". The hash is computed over
+  the commit SHA and the AI-BOM; the stored Annex IV text and risk register
+  are not inside it. The README now says so, and says what a valid
+  signature does and does not prove. Making the claim true — binding the
+  rendered document into the signed entry — is tracked for the next release.
+- README test section listed 47 tests in a hand-maintained table that had
+  been stale since v1.0; replaced with the three commands that run the
+  suites and a description of what each covers. The static "tests passing"
+  badge is now the real workflow status.
+- Structured data on the landing page listed macOS and Windows as supported
+  operating systems. The released binary is linux-amd64 only.
+
+### Added
+
+- `LICENSE` (MIT). The README and the site footer have always said the CLI
+  is MIT-licensed, but no licence file was ever committed, so GitHub
+  reported the repository as unlicensed.
+
 ## [1.7.4] — 2026-08-02 — PDF footer says "Exported", not "Generated"
 
 ### Fixed
