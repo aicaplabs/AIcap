@@ -39,7 +39,9 @@ definitions:
             "https://github.com/aicaplabs/AIcap/releases/download/${AICAP_VERSION}/aicap-linux-amd64"
             -o /usr/local/bin/aicap
           - chmod +x /usr/local/bin/aicap
-          - aicap --cli "$BITBUCKET_CLONE_DIR" --cyclonedx > sbom.cdx.json
+          # --no-fail: this step exports, it does not gate — the scan step
+          # above enforces the verdict. stdout is the JSON document only.
+          - aicap --cli "$BITBUCKET_CLONE_DIR" --cyclonedx --no-fail > sbom.cdx.json
         artifacts:
           - sbom.cdx.json
 

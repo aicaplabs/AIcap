@@ -54,12 +54,18 @@ aicap_compliance_scan:
 
 # Optional: emit CycloneDX 1.5 SBOM as a build artifact for
 # downstream enterprise toolchains.
+#
+# --no-fail: this job exports, it does not gate. The compliance verdict
+# is enforced by aicap_compliance_scan above; without the flag this job
+# would exit non-zero for any project with a high-risk component and the
+# artifact would never be uploaded. stdout carries only the JSON document
+# (diagnostics go to stderr), so the redirect produces a parseable file.
 aicap_cyclonedx_sbom:
   extends: .aicap-base
   rules:
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
   script:
-    - aicap --cli "$CI_PROJECT_DIR" --cyclonedx > sbom.cdx.json
+    - aicap --cli "$CI_PROJECT_DIR" --cyclonedx --no-fail > sbom.cdx.json
   artifacts:
     paths:
       - sbom.cdx.json

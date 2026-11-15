@@ -71,9 +71,9 @@ GUAC)? Run the CLI directly with the CycloneDX flag:
 ```yaml
       - name: Generate CycloneDX SBOM
         run: |
-          curl -sL https://github.com/aicaplabs/AIcap/releases/download/v1.7.4/aicap-linux-amd64 -o aicap
+          curl -fsSL https://github.com/aicaplabs/AIcap/releases/download/v1.7.4/aicap-linux-amd64 -o aicap
           chmod +x aicap
-          ./aicap --cli . --cyclonedx > ai-sbom.cdx.json
+          ./aicap --cli . --cyclonedx --no-fail > ai-sbom.cdx.json
 
       - name: Upload SBOM artifact
         uses: actions/upload-artifact@v4

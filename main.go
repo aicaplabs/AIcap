@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log"
 	"log/slog"
 	"net/http"
@@ -79,201 +80,7 @@ func main() {
 
 	// Headless CLI Mode for CI/CD Pipelines
 	if len(os.Args) > 1 && os.Args[1] == "--cli" {
-		opts := parseCLIArgs(os.Args[2:])
-		scanDir, imageRefs, tarballPaths, wantCycloneDX :=
-			opts.ScanDir, opts.ImageRefs, opts.TarballPaths, opts.WantCycloneDX
-		fmt.Printf("Running AIcap in CI/CD CLI mode on directory: %s\n", scanDir)
-		loadRemoteCatalogs()
-		bom := scanner.PerformScan(scanDir)
-
-		// Wave 10 — daemonless container-image scanning. Either
-		// flag may be repeated, so a pipeline that builds + saves
-		// a tarball AND wants to cross-check against the most
-		// recently pushed tag can pass both. Failures (unreachable
-		// registry, malformed tarball) are surfaced as warnings
-		// without aborting the directory scan that already ran.
-		if len(imageRefs) > 0 || len(tarballPaths) > 0 {
-			fmt.Printf("Scanning %d container image(s) and %d tarball(s)\n", len(imageRefs), len(tarballPaths))
-			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-			imgDeps, scannedImages, imgErrs := imagescan.ScanRefs(ctx, imageRefs, tarballPaths)
-			cancel()
-			for _, e := range imgErrs {
-				fmt.Printf("[-] Warning: container-image scan: %s\n", e)
-			}
-			bom.Dependencies = append(bom.Dependencies, imgDeps...)
-			bom.ScannedImages = append(bom.ScannedImages, scannedImages...)
-		}
-
-		// Pull exact repository and commit data from GitHub Actions environment
-		if repo := os.Getenv("GITHUB_REPOSITORY"); repo != "" {
-			bom.ProjectName = repo
-		}
-		if sha := os.Getenv("GITHUB_SHA"); sha != "" {
-			bom.CommitSha = sha
-		}
-
-		// Re-evaluate compliance after image findings are merged
-		// so a high-risk model weight discovered in a layer flips
-		// the BOM to "Action Required" the same as one found on
-		// disk would. Mirrors PerformScan's posture loop.
-		for _, dep := range bom.Dependencies {
-			if dep.RiskLevel == "High" && bom.Compliance == "Passed" {
-				bom.Compliance = "Action Required (Annex IV Documentation Missing)"
-				break
-			}
-		}
-
-		bomJSON, _ := json.MarshalIndent(bom, "", "  ")
-
-		// Article 9 risk register (Wave 16). Computed before any output
-		// is written because the CycloneDX serialisation needs it too:
-		// an SBOM that omits advisories AIcap already holds forces every
-		// downstream consumer to rediscover them.
-		//
-		// The register and the Annex IV draft were previously computed
-		// only inside /api/save-proof, so a free CLI run emitted neither
-		// — while action.yml and the Marketplace listing promised
-		// "AI-BOM, risk register, and Annex IV documentation on every
-		// push". Both are pure functions that need no server, and the
-		// paid boundary is the hosted ledger, the shareable report, and
-		// history. § 5 of a locally generated document states plainly
-		// that it is unattested.
-		var register types.RiskRegister
-		if !opts.NoAnnexIV {
-			register = compliance.ComputeRiskRegister(bom)
-
-			// OSV enrichment runs from the caller's own runner against a
-			// public API. Opt out with AICAP_OSV_DISABLED=true; the
-			// register still renders from the local catalog.
-			if osvClient := compliance.NewOSVClient(); osvClient != nil {
-				ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-				compliance.EnrichWithOSV(ctx, &register, bom, osvClient)
-				cancel()
-			}
-		}
-
-		if wantCycloneDX {
-			cdx := compliance.GenerateCycloneDXBOMWithRegister(bom, register)
-			cdxJSON, _ := json.MarshalIndent(cdx, "", "  ")
-			fmt.Println(string(cdxJSON))
-		} else if opts.WantSPDX {
-			doc := compliance.GenerateSPDXDocument(bom, register)
-			spdxJSON, _ := json.MarshalIndent(doc, "", "  ")
-			fmt.Println(string(spdxJSON))
-		} else {
-			fmt.Println(string(bomJSON))
-		}
-
-		if !opts.NoAnnexIV {
-			annexIV := compliance.GenerateAnnexIVMarkdownWithOptions(bom, register,
-				compliance.AnnexIVOptions{
-					Attestation:          types.Attestation{Anchored: false},
-					IncludeCostEstimates: opts.IncludeCosts,
-				})
-
-			fmt.Printf("\n[+] Article 9 risk register: %d finding(s) — High: %d, Medium: %d, Low: %d\n",
-				register.Summary.Total, register.Summary.High,
-				register.Summary.Medium, register.Summary.Low)
-			for _, f := range register.Findings {
-				for _, v := range f.LiveVulns {
-					if v.FixedVersion != "" {
-						fmt.Printf("    %s %s — %s — fixed in %s\n",
-							f.Component, f.Version, v.ID, v.FixedVersion)
-					}
-				}
-			}
-
-			// Article 5 indicators (Wave 20). Printed before the Annex IV
-			// line because Article 5 is already in force and carries the
-			// Act's heaviest penalties — it should not scroll past
-			// underneath a file path. Worded as a review prompt, never a
-			// verdict: whether a prohibition applies turns on deployment
-			// context this scan cannot observe.
-			if len(bom.ProhibitedPractices) > 0 {
-				fmt.Printf("\n[!] EU AI Act Article 5 review required — %d component(s) with in-scope capabilities:\n",
-					len(bom.ProhibitedPractices))
-				for _, p := range bom.ProhibitedPractices {
-					fmt.Printf("    %s (%s) — %s\n", p.Component, p.Article, p.Practice)
-					fmt.Printf("      Q: %s\n", p.Question)
-				}
-				fmt.Println("    These are indicators, not findings of breach — Article 5 turns on purpose")
-				fmt.Println("    and deployment setting. The Annex IV draft states what each paragraph")
-				fmt.Println("    prohibits. Article 5 has applied since 2 February 2025; penalties reach")
-				fmt.Println("    EUR 35M or 7% of worldwide turnover (Article 99(3)).")
-			}
-
-			// Article 50 transparency duties (Wave 21). Compact by
-			// design — one line per duty plus any technical evidence
-			// found. The full requirement text lives in the Annex IV
-			// draft; repeating it on stdout would drown the scan result.
-			if len(bom.TransparencyObligations) > 0 {
-				fmt.Printf("\n[i] EU AI Act Article 50 transparency duties — %d applicable (from 2 Aug 2026):\n",
-					len(bom.TransparencyObligations))
-				for _, o := range bom.TransparencyObligations {
-					fmt.Printf("    %s — %s\n", o.Article, o.Obligation)
-					if o.EvidenceIsDetectable {
-						if len(o.EvidenceFound) > 0 {
-							fmt.Printf("      evidence: %s\n", strings.Join(o.EvidenceFound, ", "))
-						} else {
-							fmt.Println("      evidence: no machine-readable marking library detected")
-						}
-					}
-				}
-				fmt.Println("    These require disclosure, not classification. See the Annex IV draft.")
-			}
-
-			if opts.AnnexIVPath != "" {
-				if err := os.WriteFile(opts.AnnexIVPath, []byte(annexIV), 0o644); err != nil {
-					fmt.Printf("[-] Warning: could not write Annex IV draft to %s: %v\n", opts.AnnexIVPath, err)
-				} else {
-					fmt.Printf("[+] Annex IV draft written to %s (unattested — see § 5)\n", opts.AnnexIVPath)
-				}
-			} else {
-				fmt.Println("[+] Annex IV draft available — pass --annex-iv <path> to write it out.")
-			}
-		}
-
-		// Phase 7: Sync to SaaS if Pro API Key is present
-		apiKey := os.Getenv("AICAP_API_KEY")
-
-		if apiKey != "" {
-			fmt.Println("\n[+] Pro API Key detected. Syncing AI-BOM and Proof Drill to AIcap Cloud...")
-			apiURL := os.Getenv("AICAP_API_URL")
-			if apiURL == "" {
-				// EU-hosted backend (Wave 13 — Scaleway, fr-par/Paris).
-				// Overridable via AICAP_API_URL. Switch to the api.aicap.dev
-				// custom domain here once it's wired, so a binary release
-				// pins the stable domain rather than the .scw.cloud URL.
-				apiURL = "https://aicap9ceb68db-aicap-backend.functions.fnc.fr-par.scw.cloud/api/save-proof"
-			}
-			req, err := http.NewRequest("POST", apiURL, bytes.NewBuffer(bomJSON))
-			if err == nil {
-				req.Header.Set("Content-Type", "application/json")
-				req.Header.Set("Authorization", "Bearer "+apiKey)
-				client := &http.Client{Timeout: 10 * time.Second}
-				resp, err := client.Do(req)
-				if err != nil {
-					fmt.Println("[-] Warning: Failed to sync with AIcap Cloud (Is the server reachable?).")
-				} else {
-					fmt.Println(syncStatusMessage(resp.StatusCode))
-					resp.Body.Close()
-				}
-			}
-		}
-
-		// Wave 12: differentiate exit codes so CI tooling can react
-		// differently to "high-risk dep, no policy" (exit 1) vs an
-		// explicit .aicap.yml policy breach (exit 2). Allows pipelines
-		// to skip notification noise on warnings while still failing
-		// loudly on blocker-severity violations.
-		exitCode := complianceExitCode(bom)
-
-		// README badge snippet: printed after the verdict so it shows
-		// the posture of this scan. Every badge in a customer README
-		// links back to aicap.dev — organic distribution.
-		fmt.Printf("\n[+] Add the compliance badge to your README:\n    %s\n", badgeMarkdown(bom))
-
-		os.Exit(exitCode)
+		os.Exit(runCLI(os.Args[2:], os.Stdout, os.Stderr))
 	}
 
 	httplog.Init()
@@ -406,8 +213,8 @@ func main() {
 // same contract pkg/finops uses for GPU pricing: fetch once at startup,
 // keep the embedded catalogs on any failure.
 //
-// Diagnostics go to slog (stderr) rather than stdout — CLI stdout is
-// parsed as JSON by the GitHub Action and must stay clean.
+// Diagnostics go to slog (stderr) rather than stdout — CLI stdout
+// carries exactly one JSON document (see runCLI) and must stay clean.
 func loadRemoteCatalogs() {
 	url := os.Getenv("AICAP_CATALOG_URL")
 	if url == "" {
@@ -439,28 +246,35 @@ func loadRemoteCatalogs() {
 // pipeline keeps running. CI tooling can grep the JSON output if it
 // wants to fail on warnings too.
 func complianceExitCode(bom types.AIBOM) int {
-	hasBlocker := false
 	for _, v := range bom.PolicyViolations {
 		if v.Severity == "Blocker" {
-			hasBlocker = true
-			break
+			return 2
 		}
-	}
-	if hasBlocker {
-		fmt.Println("\n[!] Policy breach detected. .aicap.yml Blocker rule(s) tripped — failing pipeline (exit 2).")
-		for _, v := range bom.PolicyViolations {
-			if v.Severity == "Blocker" {
-				fmt.Printf("    - [%s] %s\n", v.Rule, v.Description)
-			}
-		}
-		return 2
 	}
 	if bom.Compliance != "Passed" {
-		fmt.Println("\n[!] Compliance scan failed. High-risk dependencies detected without active mitigation. Blocking pipeline.")
 		return 1
 	}
-	fmt.Println("\n[+] Compliance scan passed. Pipeline approved.")
 	return 0
+}
+
+// explainExitCode writes the human-readable verdict for an exit code.
+// Kept apart from complianceExitCode so the mapping stays a pure function
+// and the prose goes to whichever writer the caller is using for
+// diagnostics — stderr in the CLI, never the stdout that carries the JSON.
+func explainExitCode(w io.Writer, bom types.AIBOM, code int) {
+	switch code {
+	case 2:
+		fmt.Fprintln(w, "\n[!] Policy breach detected. .aicap.yml Blocker rule(s) tripped — failing pipeline (exit 2).")
+		for _, v := range bom.PolicyViolations {
+			if v.Severity == "Blocker" {
+				fmt.Fprintf(w, "    - [%s] %s\n", v.Rule, v.Description)
+			}
+		}
+	case 1:
+		fmt.Fprintln(w, "\n[!] Compliance scan failed. High-risk dependencies detected without active mitigation. Blocking pipeline.")
+	default:
+		fmt.Fprintln(w, "\n[+] Compliance scan passed. Pipeline approved.")
+	}
 }
 
 // syncStatusMessage maps the save-proof HTTP status to the line shown
@@ -534,6 +348,14 @@ type cliOptions struct {
 	// figure beside the risk register invites a reader to discount both.
 	// The JSON output carries the cost data either way.
 	IncludeCosts bool
+	// NoFail makes the command report without gating: the verdict is
+	// still computed, printed, and present in the JSON, but the process
+	// exits 0. For export jobs — an SBOM written to an artifact — where
+	// the compliance verdict is not the point and a separate job already
+	// gates the pipeline. Without it, an SBOM job fails for any project
+	// with a high-risk component, which is most projects that use an
+	// LLM, and the artifact step that follows never runs.
+	NoFail bool
 }
 
 // directory (defaults to "."). Recognised flags:
@@ -545,6 +367,7 @@ type cliOptions struct {
 //	--annex-iv <path>  Write the Annex IV markdown draft to <path>.
 //	--no-annex-iv      Skip Annex IV generation (and its OSV lookups).
 //	--finops           Include GPU cost estimates in the Annex IV draft.
+//	--no-fail          Report the verdict but exit 0 (for export jobs).
 //
 // Unknown flags are ignored to preserve forward compatibility with
 // the GitHub Action wrapper: a new action.yml release can pass new
@@ -578,6 +401,8 @@ func parseCLIArgs(args []string) cliOptions {
 			opts.NoAnnexIV = true
 		case "--finops":
 			opts.IncludeCosts = true
+		case "--no-fail":
+			opts.NoFail = true
 		default:
 			if strings.HasPrefix(arg, "--") {
 				// Unknown flag — skip it AND its value if the
@@ -598,4 +423,223 @@ func parseCLIArgs(args []string) cliOptions {
 		}
 	}
 	return opts
+}
+
+// runCLI is the `--cli` subcommand: scan, emit the BOM, and return the
+// process exit code.
+//
+// The output contract is the reason this is a function with two writers
+// rather than code in main() calling fmt.Println:
+//
+//	stdout  exactly one JSON document — the AI-BOM, or the CycloneDX / SPDX
+//	        rendering of it — and nothing else.
+//	stderr  everything a human reads: progress, the risk-register summary,
+//	        Article 5 / Article 50 notes, sync status, the verdict, the badge.
+//
+// Until v1.8.0 both went to stdout, so `aicap --cli . --cyclonedx >
+// sbom.cdx.json` — the command the shipped GitLab template runs — wrote a
+// banner line before the JSON and several status lines after it, and the
+// file could not be parsed by anything. TestRunCLI_StdoutIsOneJSONDocument
+// pins the contract for all three formats.
+func runCLI(args []string, stdout, stderr io.Writer) int {
+	opts := parseCLIArgs(args)
+	scanDir, imageRefs, tarballPaths, wantCycloneDX :=
+		opts.ScanDir, opts.ImageRefs, opts.TarballPaths, opts.WantCycloneDX
+	fmt.Fprintf(stderr, "Running AIcap in CI/CD CLI mode on directory: %s\n", scanDir)
+	loadRemoteCatalogs()
+	bom := scanner.PerformScan(scanDir)
+
+	// Wave 10 — daemonless container-image scanning. Either
+	// flag may be repeated, so a pipeline that builds + saves
+	// a tarball AND wants to cross-check against the most
+	// recently pushed tag can pass both. Failures (unreachable
+	// registry, malformed tarball) are surfaced as warnings
+	// without aborting the directory scan that already ran.
+	if len(imageRefs) > 0 || len(tarballPaths) > 0 {
+		fmt.Fprintf(stderr, "Scanning %d container image(s) and %d tarball(s)\n", len(imageRefs), len(tarballPaths))
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+		imgDeps, scannedImages, imgErrs := imagescan.ScanRefs(ctx, imageRefs, tarballPaths)
+		cancel()
+		for _, e := range imgErrs {
+			fmt.Fprintf(stderr, "[-] Warning: container-image scan: %s\n", e)
+		}
+		bom.Dependencies = append(bom.Dependencies, imgDeps...)
+		bom.ScannedImages = append(bom.ScannedImages, scannedImages...)
+	}
+
+	// Pull exact repository and commit data from GitHub Actions environment
+	if repo := os.Getenv("GITHUB_REPOSITORY"); repo != "" {
+		bom.ProjectName = repo
+	}
+	if sha := os.Getenv("GITHUB_SHA"); sha != "" {
+		bom.CommitSha = sha
+	}
+
+	// Re-evaluate compliance after image findings are merged
+	// so a high-risk model weight discovered in a layer flips
+	// the BOM to "Action Required" the same as one found on
+	// disk would. Mirrors PerformScan's posture loop.
+	for _, dep := range bom.Dependencies {
+		if dep.RiskLevel == "High" && bom.Compliance == "Passed" {
+			bom.Compliance = "Action Required (Annex IV Documentation Missing)"
+			break
+		}
+	}
+
+	bomJSON, _ := json.MarshalIndent(bom, "", "  ")
+
+	// Article 9 risk register (Wave 16). Computed before any output
+	// is written because the CycloneDX serialisation needs it too:
+	// an SBOM that omits advisories AIcap already holds forces every
+	// downstream consumer to rediscover them.
+	//
+	// The register and the Annex IV draft were previously computed
+	// only inside /api/save-proof, so a free CLI run emitted neither
+	// — while action.yml and the Marketplace listing promised
+	// "AI-BOM, risk register, and Annex IV documentation on every
+	// push". Both are pure functions that need no server, and the
+	// paid boundary is the hosted ledger, the shareable report, and
+	// history. § 5 of a locally generated document states plainly
+	// that it is unattested.
+	var register types.RiskRegister
+	if !opts.NoAnnexIV {
+		register = compliance.ComputeRiskRegister(bom)
+
+		// OSV enrichment runs from the caller's own runner against a
+		// public API. Opt out with AICAP_OSV_DISABLED=true; the
+		// register still renders from the local catalog.
+		if osvClient := compliance.NewOSVClient(); osvClient != nil {
+			ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+			compliance.EnrichWithOSV(ctx, &register, bom, osvClient)
+			cancel()
+		}
+	}
+
+	if wantCycloneDX {
+		cdx := compliance.GenerateCycloneDXBOMWithRegister(bom, register)
+		cdxJSON, _ := json.MarshalIndent(cdx, "", "  ")
+		fmt.Fprintln(stdout, string(cdxJSON))
+	} else if opts.WantSPDX {
+		doc := compliance.GenerateSPDXDocument(bom, register)
+		spdxJSON, _ := json.MarshalIndent(doc, "", "  ")
+		fmt.Fprintln(stdout, string(spdxJSON))
+	} else {
+		fmt.Fprintln(stdout, string(bomJSON))
+	}
+
+	if !opts.NoAnnexIV {
+		annexIV := compliance.GenerateAnnexIVMarkdownWithOptions(bom, register,
+			compliance.AnnexIVOptions{
+				Attestation:          types.Attestation{Anchored: false},
+				IncludeCostEstimates: opts.IncludeCosts,
+			})
+
+		fmt.Fprintf(stderr, "\n[+] Article 9 risk register: %d finding(s) — High: %d, Medium: %d, Low: %d\n",
+			register.Summary.Total, register.Summary.High,
+			register.Summary.Medium, register.Summary.Low)
+		for _, f := range register.Findings {
+			for _, v := range f.LiveVulns {
+				if v.FixedVersion != "" {
+					fmt.Fprintf(stderr, "    %s %s — %s — fixed in %s\n",
+						f.Component, f.Version, v.ID, v.FixedVersion)
+				}
+			}
+		}
+
+		// Article 5 indicators (Wave 20). Printed before the Annex IV
+		// line because Article 5 is already in force and carries the
+		// Act's heaviest penalties — it should not scroll past
+		// underneath a file path. Worded as a review prompt, never a
+		// verdict: whether a prohibition applies turns on deployment
+		// context this scan cannot observe.
+		if len(bom.ProhibitedPractices) > 0 {
+			fmt.Fprintf(stderr, "\n[!] EU AI Act Article 5 review required — %d component(s) with in-scope capabilities:\n",
+				len(bom.ProhibitedPractices))
+			for _, p := range bom.ProhibitedPractices {
+				fmt.Fprintf(stderr, "    %s (%s) — %s\n", p.Component, p.Article, p.Practice)
+				fmt.Fprintf(stderr, "      Q: %s\n", p.Question)
+			}
+			fmt.Fprintln(stderr, "    These are indicators, not findings of breach — Article 5 turns on purpose")
+			fmt.Fprintln(stderr, "    and deployment setting. The Annex IV draft states what each paragraph")
+			fmt.Fprintln(stderr, "    prohibits. Article 5 has applied since 2 February 2025; penalties reach")
+			fmt.Fprintln(stderr, "    EUR 35M or 7% of worldwide turnover (Article 99(3)).")
+		}
+
+		// Article 50 transparency duties (Wave 21). Compact by
+		// design — one line per duty plus any technical evidence
+		// found. The full requirement text lives in the Annex IV
+		// draft; repeating it here would drown the scan result.
+		if len(bom.TransparencyObligations) > 0 {
+			fmt.Fprintf(stderr, "\n[i] EU AI Act Article 50 transparency duties — %d applicable (in force since 2 Aug 2026):\n",
+				len(bom.TransparencyObligations))
+			for _, o := range bom.TransparencyObligations {
+				fmt.Fprintf(stderr, "    %s — %s\n", o.Article, o.Obligation)
+				if o.EvidenceIsDetectable {
+					if len(o.EvidenceFound) > 0 {
+						fmt.Fprintf(stderr, "      evidence: %s\n", strings.Join(o.EvidenceFound, ", "))
+					} else {
+						fmt.Fprintln(stderr, "      evidence: no machine-readable marking library detected")
+					}
+				}
+			}
+			fmt.Fprintln(stderr, "    These require disclosure, not classification. See the Annex IV draft.")
+		}
+
+		if opts.AnnexIVPath != "" {
+			if err := os.WriteFile(opts.AnnexIVPath, []byte(annexIV), 0o644); err != nil {
+				fmt.Fprintf(stderr, "[-] Warning: could not write Annex IV draft to %s: %v\n", opts.AnnexIVPath, err)
+			} else {
+				fmt.Fprintf(stderr, "[+] Annex IV draft written to %s (unattested — see § 5)\n", opts.AnnexIVPath)
+			}
+		} else {
+			fmt.Fprintln(stderr, "[+] Annex IV draft available — pass --annex-iv <path> to write it out.")
+		}
+	}
+
+	// Phase 7: Sync to SaaS if Pro API Key is present
+	apiKey := os.Getenv("AICAP_API_KEY")
+
+	if apiKey != "" {
+		fmt.Fprintln(stderr, "\n[+] Pro API Key detected. Syncing AI-BOM and Proof Drill to AIcap Cloud...")
+		apiURL := os.Getenv("AICAP_API_URL")
+		if apiURL == "" {
+			// EU-hosted backend (Wave 13 — Scaleway, fr-par/Paris).
+			// Overridable via AICAP_API_URL. Switch to the api.aicap.dev
+			// custom domain here once it's wired, so a binary release
+			// pins the stable domain rather than the .scw.cloud URL.
+			apiURL = "https://aicap9ceb68db-aicap-backend.functions.fnc.fr-par.scw.cloud/api/save-proof"
+		}
+		req, err := http.NewRequest("POST", apiURL, bytes.NewBuffer(bomJSON))
+		if err == nil {
+			req.Header.Set("Content-Type", "application/json")
+			req.Header.Set("Authorization", "Bearer "+apiKey)
+			client := &http.Client{Timeout: 10 * time.Second}
+			resp, err := client.Do(req)
+			if err != nil {
+				fmt.Fprintln(stderr, "[-] Warning: Failed to sync with AIcap Cloud (Is the server reachable?).")
+			} else {
+				fmt.Fprintln(stderr, syncStatusMessage(resp.StatusCode))
+				resp.Body.Close()
+			}
+		}
+	}
+
+	// Wave 12: differentiate exit codes so CI tooling can react
+	// differently to "high-risk dep, no policy" (exit 1) vs an
+	// explicit .aicap.yml policy breach (exit 2). Allows pipelines
+	// to skip notification noise on warnings while still failing
+	// loudly on blocker-severity violations.
+	exitCode := complianceExitCode(bom)
+	explainExitCode(stderr, bom, exitCode)
+
+	// README badge snippet: printed after the verdict so it shows
+	// the posture of this scan. Every badge in a customer README
+	// links back to aicap.dev — organic distribution.
+	fmt.Fprintf(stderr, "\n[+] Add the compliance badge to your README:\n    %s\n", badgeMarkdown(bom))
+
+	if opts.NoFail && exitCode != 0 {
+		fmt.Fprintf(stderr, "\n[i] --no-fail: reporting only — exiting 0 instead of %d.\n", exitCode)
+		return 0
+	}
+	return exitCode
 }

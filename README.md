@@ -164,8 +164,11 @@ jobs:
 # Standard AI-BOM output (JSON)
 aicap --cli ./my-project
 
-# CycloneDX SBOM format (for enterprise toolchains)
-aicap --cli ./my-project --cyclonedx
+# CycloneDX SBOM to a file (for Dependency-Track and friends).
+# stdout is the JSON document and nothing else; progress, the verdict and
+# the badge go to stderr. --no-fail keeps an export job from failing on
+# the compliance verdict.
+aicap --cli ./my-project --cyclonedx --no-fail > ai-sbom.cdx.json
 
 # Annex IV technical documentation draft (free — no API key needed)
 aicap --cli ./my-project --annex-iv annex-iv.md
@@ -236,8 +239,13 @@ allowed_licenses:
 | `--annex-iv <path>` | Write the Annex IV technical documentation draft to `<path>` |
 | `--no-annex-iv` | Skip Annex IV generation (and the OSV lookups it performs) |
 | `--finops` | Include GPU cost estimates and rightsizing in the Annex IV draft (off by default) |
+| `--no-fail` | Report the verdict but exit 0. For export jobs (an SBOM artifact) where a separate job gates the pipeline |
 | `--image <ref>` | Scan a container image from a registry. Repeatable |
 | `--image-tar <path>` | Scan a local `docker save` tarball. Repeatable |
+
+**Output streams.** stdout carries exactly one JSON document (AIcap, CycloneDX or SPDX). Everything else — progress, the risk-register summary, Article 5 and Article 50 notes, sync status, the verdict — goes to stderr, so redirecting stdout to a file always yields something a parser accepts.
+
+**Exit codes.** `0` passed · `1` high-risk components without mitigation · `2` a `.aicap.yml` Blocker rule tripped.
 
 ## 🌍 Environment Variables
 
