@@ -32,9 +32,22 @@ runs:
   steps:
     - name: Download AIcap Scanner
       shell: bash
+      env:
+        # The digest of the release binary this version of the action
+        # runs. It lives here, in the tagged action.yml, rather than being
+        # fetched from the release: a checksum downloaded from the same
+        # place as the binary only detects corruption, while one pinned in
+        # the action also detects a release asset that was swapped after
+        # the tag was cut. Produced by scripts/build-release.sh, which builds from
+        # a clean export of the tagged source; updated with the version at release
+        # time; the release binary is built with -buildvcs=false so its
+        # digest does not depend on the commit that records it.
+        AICAP_SHA256: 1c5e891baaa46ac0c9a126b9e51d536be4b9a3cc2a6a72e1ac9058cf242fe8c1
       run: |
-        echo "⬇️ Downloading AIcap v1.7.4 statically-linked binary..."
-        curl -sL https://github.com/aicaplabs/AIcap/releases/download/v1.7.4/aicap-linux-amd64 -o aicap
+        echo "⬇️ Downloading AIcap v1.8.0 statically-linked binary..."
+        # -f: a 404 or 5xx is an error, not an HTML page saved as "aicap".
+        curl -fsSL --retry 3 https://github.com/aicaplabs/AIcap/releases/download/v1.8.0/aicap-linux-amd64 -o aicap
+        echo "${AICAP_SHA256}  aicap" | sha256sum -c -
         chmod +x aicap
 
     - name: Execute AI-BOM Scan
@@ -42,16 +55,23 @@ runs:
       shell: bash
       env:
         AICAP_API_KEY: ${{ inputs.api-key }}
+        # Inputs reach the script as environment variables, never by
+        # interpolation into the script text: an input containing shell
+        # syntax would otherwise be executed rather than passed.
+        SCAN_DIRECTORY: ${{ inputs.scan-directory }}
+        ANNEX_IV_PATH: ${{ inputs.annex-iv-path }}
       run: |
-        echo "🔍 Starting Continuous AI-BOM Scan on directory: ${{ inputs.scan-directory }}"
-        # Capture output for the compliance-status output while
-        # preserving the CLI's exit code (0 pass / 1 unmitigated
-        # high-risk / 2 policy blocker) so the job still gates merges.
+        echo "🔍 Starting Continuous AI-BOM Scan on directory: ${SCAN_DIRECTORY}"
+        # stdout is exactly one JSON document (the AI-BOM); progress, the
+        # verdict and the badge go to stderr and show in the log. Capture
+        # stdout for the compliance-status output while preserving the
+        # CLI's exit code (0 pass / 1 unmitigated high-risk / 2 policy
+        # blocker) so the job still gates merges.
         set +e
-        ./aicap --cli "${{ inputs.scan-directory }}" \
-          --annex-iv "${{ inputs.annex-iv-path }}" | tee aicap-scan-output.txt
+        ./aicap --cli "${SCAN_DIRECTORY}" \
+          --annex-iv "${ANNEX_IV_PATH}" | tee aicap-scan-output.txt
         exit_code=${PIPESTATUS[0]}
         status=$(grep -o '"complianceStatus": *"[^"]*"' aicap-scan-output.txt | head -1 | sed 's/.*: *"\(.*\)"/\1/')
         echo "compliance-status=${status:-Unknown}" >> "$GITHUB_OUTPUT"
-        echo "annex-iv-path=${{ inputs.annex-iv-path }}" >> "$GITHUB_OUTPUT"
+        echo "annex-iv-path=${ANNEX_IV_PATH}" >> "$GITHUB_OUTPUT"
         exit "$exit_code"

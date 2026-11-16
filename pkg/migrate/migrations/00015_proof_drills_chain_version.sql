@@ -1,0 +1,25 @@
+-- Migration: per-row ledger format version.
+--
+-- Why: until now crypto_hash covered the commit SHA, the AI-BOM and the
+-- previous hash. The rendered Annex IV document and the risk register sat
+-- in neighbouring columns, outside the hash and therefore outside the
+-- Ed25519 signature (migration 00014). Either could be edited in place and
+-- both verify-chain and a shared report's signature would still pass.
+--
+-- Ledger version 2 puts both inside the hash (see pkg/ledger/chain.go).
+-- The formula differs, so each row has to say which one it was written
+-- under.
+--
+-- Design:
+--   * DEFAULT 1 marks every existing row as version 1, which is what it
+--     is. Those rows are NOT upgraded: their hashes and signatures were
+--     computed under the version 1 formula, and rewriting them would
+--     require re-signing history — the ability the ledger exists to deny.
+--     verify-chain reports how many entries are document-bound rather
+--     than implying all of them are.
+--   * The version is not a secret and not a trust anchor. Changing it on a
+--     row selects the other formula, the recomputed hash stops matching,
+--     and verification fails; for signed rows the signed message also
+--     carries the version.
+
+ALTER TABLE proof_drills ADD COLUMN IF NOT EXISTS chain_version SMALLINT NOT NULL DEFAULT 1;

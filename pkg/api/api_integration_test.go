@@ -1769,3 +1769,50 @@ func TestPublicReport_MalformedTokenIs404(t *testing.T) {
 		}
 	}
 }
+
+// A ledger entry has to mean a scan was received. Before v1.8.0 the
+// decode error was discarded, so a truncated upload or a proxy's HTML
+// error page became a zero-value BOM that was hashed, signed and
+// appended as a scan that found nothing.
+func TestSaveProof_RejectsBodiesThatAreNotABOM(t *testing.T) {
+	srv, db := setup(t)
+	userID := "00000000-0000-0000-0000-000000000720"
+	token := seedAPIKey(t, db, userID, "pro")
+
+	post := func(body []byte) int {
+		req, _ := http.NewRequest(http.MethodPost, srv.URL+"/api/save-proof", bytes.NewReader(body))
+		req.Header.Set("Authorization", "Bearer "+token)
+		req.Header.Set("Content-Type", "application/json")
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatalf("post: %v", err)
+		}
+		resp.Body.Close()
+		return resp.StatusCode
+	}
+
+	for name, body := range map[string][]byte{
+		"empty":     nil,
+		"html":      []byte("<html><body>502 Bad Gateway</body></html>"),
+		"truncated": []byte(`{"projectName": "demo", "dependencies": [`),
+	} {
+		if got := post(body); got != http.StatusBadRequest {
+			t.Errorf("%s body: status = %d, want 400", name, got)
+		}
+	}
+
+	// Over the cap: valid JSON, far too much of it.
+	big := append([]byte(`{"projectName":"`), bytes.Repeat([]byte("a"), 9<<20)...)
+	big = append(big, []byte(`"}`)...)
+	if got := post(big); got != http.StatusRequestEntityTooLarge {
+		t.Errorf("9 MB body: status = %d, want 413", got)
+	}
+
+	var n int
+	if err := db.QueryRow("SELECT COUNT(*) FROM proof_drills WHERE user_id = $1", userID).Scan(&n); err != nil {
+		t.Fatalf("count: %v", err)
+	}
+	if n != 0 {
+		t.Errorf("%d ledger entries were written from rejected bodies, want 0", n)
+	}
+}

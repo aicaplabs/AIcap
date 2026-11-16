@@ -212,6 +212,14 @@
           "note": {
             "type": "string",
             "description": "Present when some entries are unsigned, so ok:true is not read as more than it means."
+          },
+          "documentBound": {
+            "type": "integer",
+            "description": "Entries written under ledger version 2, whose hash covers the Annex IV document and risk register."
+          },
+          "documentNote": {
+            "type": "string",
+            "description": "Present when some entries are version 1: for those, this check covers the commit and AI-BOM but cannot detect a change to the stored document."
           }
         },
         "required": [
@@ -409,7 +417,7 @@
           "ci"
         ],
         "summary": "Persist a scan as an immutable, hash-chained proof drill.",
-        "description": "Called by `aicap --cli` after a scan. The CLI's `--cloud-sync` flag triggers this call with the BOM in the body. Rate-limited on free tier (10 scans per rolling 30 days). Idempotent on `(user_id, commit_sha)` — a CI retry returns 200 with `idempotent: true` and the original `cryptoHash`.",
+        "description": "Called by `aicap --cli` after a scan. The CLI makes this call, with the BOM in the body, when `AICAP_API_KEY` is set. Rate-limited on free tier (10 scans per rolling 30 days). Idempotent on `(user_id, commit_sha)` — a CI retry returns 200 with `idempotent: true` and the original `cryptoHash`. Each entry is written under ledger version 2: its `cryptoHash` covers the rendered Annex IV document and the risk register as well as the commit and the BOM.",
         "security": [
           {
             "apiKey": []
@@ -426,6 +434,16 @@
           }
         },
         "responses": {
+          "200": {
+            "description": "Idempotent retry; the same (user_id, commit_sha) is already on file.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SaveProofResponse"
+                }
+              }
+            }
+          },
           "201": {
             "description": "Proof drill persisted.",
             "headers": {
@@ -447,12 +465,12 @@
               }
             }
           },
-          "200": {
-            "description": "Idempotent retry; the same (user_id, commit_sha) is already on file.",
+          "400": {
+            "description": "Body is not a JSON AI-BOM (empty, truncated, or not JSON). Nothing is written to the ledger.",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/SaveProofResponse"
+                  "$ref": "#/components/schemas/ErrorResponse"
                 }
               }
             }
@@ -480,6 +498,16 @@
                 "$ref": "#/components/parameters/RateLimitReset/schema"
               }
             },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Body exceeds the 8 MB limit. Nothing is written to the ledger.",
             "content": {
               "application/json": {
                 "schema": {
@@ -564,11 +592,11 @@
               }
             }
           },
-          "404": {
-            "description": "No drill matched the cryptoHash for this user."
-          },
           "401": {
             "description": "Missing or invalid JWT."
+          },
+          "404": {
+            "description": "No drill matched the cryptoHash for this user."
           }
         }
       }
@@ -633,6 +661,9 @@
           }
         },
         "responses": {
+          "200": {
+            "description": "Report was already shared; existing token returned."
+          },
           "201": {
             "description": "Token minted.",
             "content": {
@@ -649,14 +680,11 @@
               }
             }
           },
-          "200": {
-            "description": "Report was already shared; existing token returned."
+          "401": {
+            "description": "Missing or invalid JWT."
           },
           "404": {
             "description": "No drill matched the hash for this user."
-          },
-          "401": {
-            "description": "Missing or invalid JWT."
           }
         }
       },
@@ -684,11 +712,11 @@
           "204": {
             "description": "Share revoked."
           },
-          "404": {
-            "description": "No drill matched the hash for this user."
-          },
           "401": {
             "description": "Missing or invalid JWT."
+          },
+          "404": {
+            "description": "No drill matched the hash for this user."
           }
         }
       }
@@ -736,7 +764,7 @@
                     },
                     "attestation": {
                       "type": "object",
-                      "description": "Ed25519 attestation for this ledger entry. Present on every response; `signature` is empty for entries written before ledger signing was enabled. Verify by base64-decoding signedMessage and signature and checking them against the key from /api/ledger/public-key — this requires no account and no trust in the party that shared the report.",
+                      "description": "Ed25519 attestation for this ledger entry. Present on every response; `signature` is empty for entries written before ledger signing was enabled. Verify by base64-decoding signedMessage and signature and checking them against the key from /api/ledger/public-key — this requires no account and no trust in the party that shared the report. A valid signature attributes the ledger entry (commit + cryptoHash) to the service; whether it also covers the document text depends on the entry's ledger version — see `integrity`.",
                       "properties": {
                         "signature": {
                           "type": "string",
@@ -764,6 +792,48 @@
                         "note": {
                           "type": "string",
                           "description": "Present instead of the verification fields when the entry is unsigned."
+                        }
+                      }
+                    },
+                    "integrity": {
+                      "type": "object",
+                      "description": "What ties the `markdown` in this response to `cryptoHash`, and therefore to the signature. For ledger version 2 the digests are recomputed from stored content on every request, so an edit to the stored document changes `annexIvSha256` and the chain hash no longer recomputes to the signed `cryptoHash`. For version 1 the hash never covered the document and this block says so. `aicap --verify-report <url>` performs the whole check.",
+                      "properties": {
+                        "chainVersion": {
+                          "type": "integer",
+                          "enum": [
+                            1,
+                            2
+                          ],
+                          "description": "Ledger format the entry was written under."
+                        },
+                        "documentCovered": {
+                          "type": "boolean",
+                          "description": "True when cryptoHash covers the Annex IV text and risk register (version 2)."
+                        },
+                        "prevHash": {
+                          "type": "string",
+                          "description": "cryptoHash of the previous entry in the owner's chain; \"\" on a genesis entry. Version 2 only."
+                        },
+                        "bomSha256": {
+                          "type": "string",
+                          "description": "SHA-256 of the stored AI-BOM (canonical JSON text). The BOM itself is not returned. Version 2 only."
+                        },
+                        "annexIvSha256": {
+                          "type": "string",
+                          "description": "SHA-256 of the `markdown` field's UTF-8 bytes. Version 2 only."
+                        },
+                        "riskRegisterSha256": {
+                          "type": "string",
+                          "description": "SHA-256 of the stored risk register (canonical JSON text). Version 2 only."
+                        },
+                        "howToCheck": {
+                          "type": "string",
+                          "description": "The recomputation recipe, in words. Version 2 only."
+                        },
+                        "note": {
+                          "type": "string",
+                          "description": "Present for version 1 entries: states that the document is not covered."
                         }
                       }
                     }
@@ -829,11 +899,11 @@
               }
             }
           },
-          "409": {
-            "description": "Key already materialised. Use /api/rotate-key to replace it."
-          },
           "401": {
             "description": "Missing or invalid JWT."
+          },
+          "409": {
+            "description": "Key already materialised. Use /api/rotate-key to replace it."
           }
         }
       }
@@ -920,11 +990,11 @@
           "200": {
             "description": "Verified."
           },
-          "402": {
-            "description": "Checkout not complete."
-          },
           "401": {
             "description": "Missing or invalid JWT."
+          },
+          "402": {
+            "description": "Checkout not complete."
           }
         }
       }

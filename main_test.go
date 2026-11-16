@@ -1,6 +1,9 @@
 package main
 
 import (
+	"bytes"
+	"encoding/json"
+	"io"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -327,6 +330,181 @@ func TestAnnexIVIsByteStableAcrossScans(t *testing.T) {
 		if got := render(); got != first {
 			t.Fatal("Annex IV differs between scans of an identical tree — " +
 				"the ledger hash computed over this BOM would differ too")
+		}
+	}
+}
+
+// runCLIForTest runs the --cli subcommand against the repo's own fixture
+// tree with the network switched off, and returns what it wrote to each
+// stream.
+func runCLIForTest(t *testing.T, extra ...string) (stdout, stderr string, code int) {
+	t.Helper()
+	// No cloud sync, no OSV lookups, no remote catalog: the test must not
+	// depend on the network or on whatever the developer has exported.
+	t.Setenv("AICAP_API_KEY", "")
+	t.Setenv("AICAP_OSV_DISABLED", "true")
+	t.Setenv("AICAP_CATALOG_URL", "")
+	t.Setenv("GITHUB_REPOSITORY", "")
+	t.Setenv("GITHUB_SHA", "")
+
+	var out, errOut bytes.Buffer
+	code = runCLI(append([]string{"testing_files"}, extra...), &out, &errOut)
+	return out.String(), errOut.String(), code
+}
+
+// stdout carries exactly one JSON document, in every output format.
+//
+// Until v1.8.0 the CLI printed a banner before the JSON and the verdict,
+// sync status and README badge after it, all on stdout. Redirecting the
+// SBOM to a file — which is what the shipped GitLab template does, and
+// what anyone feeding Dependency-Track would do — produced a file no
+// parser would accept. Nothing caught it because every other test
+// exercises the functions that build the BOM, not the stream it is
+// written to.
+func TestRunCLI_StdoutIsOneJSONDocument(t *testing.T) {
+	cases := []struct {
+		name    string
+		args    []string
+		wantKey string
+	}{
+		{"aicap json", []string{"--no-annex-iv"}, "complianceStatus"},
+		{"cyclonedx", []string{"--cyclonedx", "--no-annex-iv"}, "bomFormat"},
+		{"spdx", []string{"--spdx", "--no-annex-iv"}, "spdxVersion"},
+		// With the Annex IV path enabled the CLI prints the most prose
+		// (risk register, Article 5, Article 50) — the case most likely
+		// to leak a line onto stdout.
+		{"cyclonedx with annex iv", []string{"--cyclonedx", "--annex-iv", filepath.Join(t.TempDir(), "annex.md")}, "bomFormat"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			stdout, stderr, _ := runCLIForTest(t, tc.args...)
+
+			var doc map[string]any
+			dec := json.NewDecoder(strings.NewReader(stdout))
+			if err := dec.Decode(&doc); err != nil {
+				t.Fatalf("stdout is not JSON: %v\nfirst bytes: %.120q", err, stdout)
+			}
+			if _, ok := doc[tc.wantKey]; !ok {
+				t.Errorf("stdout JSON has no %q key — wrong document for this format", tc.wantKey)
+			}
+			// Nothing may follow the document but whitespace.
+			if rest, _ := io.ReadAll(dec.Buffered()); strings.TrimSpace(string(rest)) != "" {
+				t.Errorf("stdout has trailing non-JSON content: %.120q", rest)
+			}
+			var extra any
+			if err := dec.Decode(&extra); err != io.EOF {
+				t.Errorf("stdout carries more than one JSON value (err=%v)", err)
+			}
+
+			// The prose has to go somewhere a human will see it.
+			if !strings.Contains(stderr, "Running AIcap") {
+				t.Errorf("progress line missing from stderr: %.200q", stderr)
+			}
+			if !strings.Contains(stderr, "compliance badge") {
+				t.Errorf("badge snippet missing from stderr")
+			}
+		})
+	}
+}
+
+// The GitHub Action reads complianceStatus out of stdout to set its
+// `compliance-status` output. That key has to be in the default document.
+func TestRunCLI_DefaultOutputCarriesComplianceStatus(t *testing.T) {
+	stdout, _, code := runCLIForTest(t, "--no-annex-iv")
+	var doc struct {
+		ComplianceStatus string `json:"complianceStatus"`
+	}
+	if err := json.Unmarshal([]byte(stdout), &doc); err != nil {
+		t.Fatalf("stdout is not JSON: %v", err)
+	}
+	if doc.ComplianceStatus == "" {
+		t.Fatal("complianceStatus is empty in the default output")
+	}
+	// The fixture tree contains high-risk components, so the scan fails
+	// the pipeline — and the exit code must still be reported with the
+	// JSON intact, which is the case action.yml depends on.
+	if code == 0 {
+		t.Errorf("fixture scan exited 0; expected a non-zero compliance exit code (status %q)", doc.ComplianceStatus)
+	}
+}
+
+// --no-fail reports without gating. The verdict must still be in the
+// JSON and on stderr — the flag changes the exit code, not the finding.
+func TestRunCLI_NoFailExitsZeroButKeepsTheVerdict(t *testing.T) {
+	_, _, gated := runCLIForTest(t, "--no-annex-iv")
+	if gated == 0 {
+		t.Skip("fixture scan passes; nothing for --no-fail to suppress")
+	}
+
+	stdout, stderr, code := runCLIForTest(t, "--no-annex-iv", "--no-fail")
+	if code != 0 {
+		t.Errorf("exit code = %d with --no-fail, want 0", code)
+	}
+	var doc struct {
+		ComplianceStatus string `json:"complianceStatus"`
+	}
+	if err := json.Unmarshal([]byte(stdout), &doc); err != nil {
+		t.Fatalf("stdout is not JSON: %v", err)
+	}
+	if doc.ComplianceStatus == "" || doc.ComplianceStatus == "Passed" {
+		t.Errorf("complianceStatus = %q; --no-fail must not launder the verdict", doc.ComplianceStatus)
+	}
+	if !strings.Contains(stderr, "Compliance scan failed") && !strings.Contains(stderr, "Policy breach") {
+		t.Errorf("verdict missing from stderr under --no-fail")
+	}
+	if !strings.Contains(stderr, "--no-fail") {
+		t.Errorf("stderr does not say the exit code was suppressed")
+	}
+}
+
+func TestParseCLIArgs_NoFail(t *testing.T) {
+	if parseCLIArgs([]string{"."}).NoFail {
+		t.Error("NoFail defaulted to true; gating must be the default")
+	}
+	if !parseCLIArgs([]string{".", "--cyclonedx", "--no-fail"}).NoFail {
+		t.Error("--no-fail not parsed")
+	}
+}
+
+// action.yml downloads a binary and runs it inside other people's CI. For
+// a tool that sells supply-chain assurance, how it does that is part of
+// the product.
+func TestActionYML_VerifiesWhatItDownloads(t *testing.T) {
+	raw, err := os.ReadFile("action.yml")
+	if err != nil {
+		t.Fatalf("read action.yml: %v", err)
+	}
+	action := strings.ReplaceAll(string(raw), "\r\n", "\n")
+
+	// A pinned digest, checked before the binary is made executable.
+	pin := regexp.MustCompile(`(?m)^\s+AICAP_SHA256: ([0-9a-f]{64})$`).FindStringSubmatch(action)
+	if pin == nil {
+		t.Fatal("action.yml pins no SHA-256 for the binary it downloads")
+	}
+	check := strings.Index(action, "sha256sum -c")
+	chmod := strings.Index(action, "chmod +x aicap")
+	if check < 0 {
+		t.Fatal("action.yml never verifies the download against the pinned digest")
+	}
+	if chmod < 0 || chmod < check {
+		t.Error("the binary is made executable before its digest is checked")
+	}
+
+	// curl without -f saves a 404 page as the binary and carries on.
+	for _, line := range strings.Split(action, "\n") {
+		if strings.Contains(line, "curl ") && !strings.HasPrefix(strings.TrimSpace(line), "#") &&
+			!regexp.MustCompile(`curl -[a-zA-Z]*f`).MatchString(line) {
+			t.Errorf("curl without -f: %s", strings.TrimSpace(line))
+		}
+	}
+
+	// Inputs must arrive as environment variables. `${{ inputs.x }}`
+	// inside a run: script is substituted into the script text before the
+	// shell sees it, so an input containing shell syntax is executed.
+	envAssignment := regexp.MustCompile(`^\s+[A-Z_]+: \$\{\{ inputs\.[a-z-]+ \}\}$`)
+	for _, line := range strings.Split(action, "\n") {
+		if strings.Contains(line, "${{ inputs.") && !envAssignment.MatchString(line) {
+			t.Errorf("input interpolated outside an env: assignment: %s", strings.TrimSpace(line))
 		}
 	}
 }

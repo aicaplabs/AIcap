@@ -17,8 +17,30 @@ jobs:
           cache: true
       - name: go build
         run: go build ./...
+      # vet both build configurations: the integration tests only compile
+      # under their tag, so a plain `go vet ./...` never looks at them.
+      - name: go vet
+        run: |
+          go vet ./...
+          go vet -tags=integration ./...
       - name: go test (unit)
         run: go test ./...
+
+  vulncheck:
+    runs-on: ubuntu-latest
+    # Reachability-based: fails only for advisories in code this module
+    # actually calls, in its dependencies or in the Go standard library.
+    # The first run of this check found 27 — nearly all standard-library
+    # fixes the build was missing because go.mod pinned an old patch
+    # release. Bumping the `toolchain` line in go.mod is the usual fix.
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: 'go.mod'
+          cache: true
+      - name: govulncheck
+        run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...
 
   integration:
     runs-on: ubuntu-latest

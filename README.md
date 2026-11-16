@@ -72,8 +72,9 @@ reader to discount both. They stay in the JSON output and the dashboard, and
 enter the Annex IV draft only when you ask.
 
 ### 🔒 Immutable Audit Ledger (Pro)
-- SHA-256 hash chain over every scan (commit SHA + AI-BOM), so editing,
-  reordering, or deleting any historical entry breaks verification at every later link
+- SHA-256 hash chain over every scan — the commit SHA, the AI-BOM, the rendered
+  Annex IV document and the risk register — so editing, reordering, or deleting
+  any historical entry breaks verification at every later link
 - **Ed25519 signature on every entry**, with the key held in the application
   environment and never in the database — so possession of the database is not
   the ability to rewrite history
@@ -99,21 +100,35 @@ curl "https://<backend>/api/public/report?token=<share-token>"
 curl "https://<backend>/api/ledger/public-key"
 ```
 
-Base64-decode `attestation.signedMessage` and `attestation.signature`, then
-verify them against that public key with any Ed25519 implementation. A valid
-signature proves that AIcap recorded a ledger entry for this commit with this
-chain hash, and that the entry has not been altered since — including by the
-party who sent you the link.
+The whole check is one command:
 
-**What the signature does not cover yet.** The chain hash is computed over
-the commit SHA and the AI-BOM. The Annex IV text and the risk register shown
-in a shared report are rendered from that BOM when the entry is written and
-stored beside it, but they are not inside the hash, and the public report
-does not include the BOM itself. So today the signature attributes the *scan
-record* to AIcap; it does not by itself prove that the rendered document you
-are reading is byte-for-byte what was written at scan time. Binding the
-rendered document into the signed entry is the next change to the ledger
-format.
+```bash
+aicap --verify-report "https://<backend>/api/public/report?token=<share-token>"
+```
+
+It reports three things separately: the signature verifies under the public
+key; the signed bytes name this report's commit and ledger hash; and the
+document text is the text that was signed. It exits 0 only when all three
+hold. Pass `--public-key <base64>` with a key you obtained some other way — a
+key fetched from the server that produced the signature is the weaker check,
+and the command says so.
+
+To do it by hand: SHA-256 the `markdown` field and compare it with
+`integrity.annexIvSha256`; recompute the ledger hash as the SHA-256 of
+`aicap-chain-v2`, `prevHash`, `bomSha256`, `annexIvSha256`,
+`riskRegisterSha256` and `commitSha` joined by newlines; then verify
+`attestation.signature` over the base64-decoded `attestation.signedMessage`,
+which ends with that hash.
+
+**What a signature proves depends on when the entry was written.** Entries
+recorded since ledger version 2 was introduced use it: the hash covers the Annex IV
+text and the risk register, so a valid signature shows the document you were
+sent is the one recorded at scan time — including against changes by the party
+who sent you the link. Entries recorded before that are version 1: the hash
+covers the commit and the AI-BOM only, so the signature attributes the scan
+record to AIcap but cannot show the text is unaltered. They are not upgraded —
+doing so would mean re-signing history — and both the report and the verifier
+state which kind an entry is.
 
 The hash chain alone could not tell you that: it proves the entries are
 consistent with each other, not who wrote them. Pin the public key out of band
@@ -152,7 +167,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Run AIcap Compliance Scan
-        uses: aicaplabs/AIcap@v1.7.4
+        uses: aicaplabs/AIcap@v1.8.0
         with:
           api-key: ${{ secrets.AICAP_API_KEY }}
           scan-directory: '.'
@@ -164,8 +179,11 @@ jobs:
 # Standard AI-BOM output (JSON)
 aicap --cli ./my-project
 
-# CycloneDX SBOM format (for enterprise toolchains)
-aicap --cli ./my-project --cyclonedx
+# CycloneDX SBOM to a file (for Dependency-Track and friends).
+# stdout is the JSON document and nothing else; progress, the verdict and
+# the badge go to stderr. --no-fail keeps an export job from failing on
+# the compliance verdict.
+aicap --cli ./my-project --cyclonedx --no-fail > ai-sbom.cdx.json
 
 # Annex IV technical documentation draft (free — no API key needed)
 aicap --cli ./my-project --annex-iv annex-iv.md
@@ -236,8 +254,13 @@ allowed_licenses:
 | `--annex-iv <path>` | Write the Annex IV technical documentation draft to `<path>` |
 | `--no-annex-iv` | Skip Annex IV generation (and the OSV lookups it performs) |
 | `--finops` | Include GPU cost estimates and rightsizing in the Annex IV draft (off by default) |
+| `--no-fail` | Report the verdict but exit 0. For export jobs (an SBOM artifact) where a separate job gates the pipeline |
 | `--image <ref>` | Scan a container image from a registry. Repeatable |
 | `--image-tar <path>` | Scan a local `docker save` tarball. Repeatable |
+
+**Output streams.** stdout carries exactly one JSON document (AIcap, CycloneDX or SPDX). Everything else — progress, the risk-register summary, Article 5 and Article 50 notes, sync status, the verdict — goes to stderr, so redirecting stdout to a file always yields something a parser accepts.
+
+**Exit codes.** `0` passed · `1` high-risk components without mitigation · `2` a `.aicap.yml` Blocker rule tripped.
 
 ## 🌍 Environment Variables
 

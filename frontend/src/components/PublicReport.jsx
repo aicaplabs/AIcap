@@ -92,7 +92,7 @@ function ReportBody({ report }) {
         <Provenance label="Ledger hash" value={report.cryptoHash?.substring(0, 12) + '…'} mono />
       </div>
 
-      <AttestationNotice attestation={report.attestation} />
+      <AttestationNotice attestation={report.attestation} integrity={report.integrity} />
 
       <div className="bg-white rounded-2xl border border-slate-200 shadow-[0_8px_30px_rgb(0,0,0,0.06)] overflow-hidden">
         <div className="px-4 py-2 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
@@ -142,10 +142,22 @@ function ReportBody({ report }) {
 // The unsigned case is shown just as plainly. A recipient who sees no
 // notice at all should never have to wonder whether it was absent or
 // merely not rendered.
-function AttestationNotice({ attestation }) {
+//
+// What a valid signature proves depends on the ledger version the entry
+// was written under, and the copy has to follow that rather than state
+// the strongest claim for everything:
+//
+//   version 2  the signed hash covers the document text, so the signature
+//              shows this text is what was recorded at scan time.
+//   version 1  the signed hash covers the commit and the AI-BOM only. The
+//              signature attributes the scan record; it cannot show the
+//              text is unaltered. This notice used to say "has not been
+//              altered since" for these entries too.
+function AttestationNotice({ attestation, integrity }) {
   if (!attestation) return null;
 
   const signed = Boolean(attestation.signature);
+  const documentCovered = Boolean(integrity?.documentCovered);
 
   if (!signed) {
     return (
@@ -166,13 +178,27 @@ function AttestationNotice({ attestation }) {
       </summary>
       <p className="mt-2">
         This record carries an {attestation.algorithm || 'Ed25519'} signature made with a key
-        held by AIcap and never stored in the database. A valid signature proves the record
-        was produced by AIcap and has not been altered since — including by whoever sent you
-        this link.
+        held by AIcap and never stored in the database. A valid signature proves AIcap
+        recorded a ledger entry for this commit with this ledger hash.
       </p>
+      {documentCovered ? (
+        <p className="mt-2">
+          The ledger hash covers the document below. So a valid signature also shows that
+          this text is what was recorded at scan time — including against changes by whoever
+          sent you this link. The digests it was computed from are listed underneath.
+        </p>
+      ) : (
+        <p className="mt-2 bg-amber-50 border border-amber-200 text-amber-900 rounded px-3 py-2">
+          <strong>What this does not cover.</strong>{' '}
+          {integrity?.note ||
+            'This entry was written under an earlier ledger version whose hash covers the commit and the AI-BOM, not the document text. The signature attributes the scan record to AIcap; it cannot show that the text below is byte-for-byte what was written at scan time.'}
+        </p>
+      )}
       <p className="mt-2">
-        Base64-decode the signed message and signature below, then check them against the
-        public key published at{' '}
+        Check it without trusting this page: run{' '}
+        <code className="bg-white/60 px-1 rounded font-mono">aicap --verify-report &lt;API URL of this report&gt;</code>
+        , or base64-decode the signed message and signature below and verify them against
+        the public key published at{' '}
         <code className="bg-white/60 px-1 rounded font-mono">
           {attestation.publicKeyPath || '/api/ledger/public-key'}
         </code>{' '}
@@ -183,6 +209,14 @@ function AttestationNotice({ attestation }) {
         <AttestationField label="Signature (base64)" value={attestation.signature} />
         {attestation.signingKeyId && (
           <AttestationField label="Signing key" value={attestation.signingKeyId} />
+        )}
+        {documentCovered && (
+          <>
+            <AttestationField label="Document SHA-256" value={integrity.annexIvSha256} />
+            <AttestationField label="AI-BOM SHA-256" value={integrity.bomSha256} />
+            <AttestationField label="Risk register SHA-256" value={integrity.riskRegisterSha256} />
+            <AttestationField label="Previous ledger hash" value={integrity.prevHash || '(none — first entry)'} />
+          </>
         )}
       </dl>
     </details>

@@ -9,6 +9,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 Trial of new features lands on `development` first. Once a stable
 batch is ready, it is merged to `main` and tagged.
 
+## [1.8.0] — 2026-11-16 — Document-bound ledger, valid SBOM output, corrected AI Act dates
+
+Driven by an end-to-end review rather than a feature request. Every item
+below is either a claim the product made that the code did not support, or
+a documented command that did not work.
+
 ### Fixed
 
 - **The site, README and guides stated the wrong application date for the
@@ -23,15 +29,50 @@ batch is ready, it is merged to `main` and tagged.
   page metadata, social-preview image, README, and three guides. The
   penalties guide is rewritten against the amended text and now leads with
   what *is* enforceable today (Article 5, Article 50, GPAI duties).
-  Not yet corrected: the Article 50 section of generated reports still says
-  "the same date as the high-risk obligations". That string is compiled into
-  the binary and ships with the next release.
-- **README overstated what the ledger signature covers.** It said the hash
-  chain covered "commit + BOM + documentation". The hash is computed over
-  the commit SHA and the AI-BOM; the stored Annex IV text and risk register
-  are not inside it. The README now says so, and says what a valid
-  signature does and does not prove. Making the claim true — binding the
-  rendered document into the signed entry — is tracked for the next release.
+- **Generated reports said Article 50 applies "the same date as the
+  high-risk obligations".** Same cause, compiled into the binary. The
+  Article 50 section now says the duties have applied since 2 August 2026,
+  gives the amended high-risk dates, and states the transitional rule for
+  generative systems already on the market (Article 50(2) marking from
+  2 December 2026).
+- **SBOM output was not valid JSON.** `aicap --cli . --cyclonedx >
+  sbom.cdx.json` — the command in both CI templates and two guides — wrote
+  a banner line before the JSON and the verdict, sync status and README
+  badge after it. stdout now carries exactly one JSON document in every
+  format; everything a human reads goes to stderr. Pinned by a test that
+  decodes stdout for the AIcap, CycloneDX and SPDX formats.
+- **SBOM export jobs failed for most AI projects.** The export exits with
+  the compliance verdict, which is non-zero whenever a high-risk component
+  is present — so the artifact upload that follows never ran. See
+  `--no-fail` below; both templates and both guides now use it on the
+  export job.
+- **The ledger signature did not cover the document it was shown beside.**
+  The chain hash covered the commit SHA and the AI-BOM. The Annex IV text
+  and the risk register were stored next to it, outside the hash and so
+  outside the signature: either could be edited in the database and
+  `verify-chain`, the report's signature, and the report page's "has not
+  been altered" would all still hold. The README also described the hash
+  as covering "commit + BOM + documentation". Fixed by ledger version 2
+  (below) rather than by rewording.
+- **`/api/save-proof` accepted anything.** The JSON decode error was
+  discarded, so a truncated upload or a proxy's HTML error page became a
+  zero-value BOM that was rendered, hashed, signed and appended to the
+  ledger as a scan that found nothing. Non-JSON bodies are now rejected
+  with 400 and bodies over 8 MB with 413; nothing is written.
+- **The GitHub Action ran an unverified download.** `curl -sL` with no
+  `-f` (a 404 was saved as the binary), no checksum, and inputs
+  interpolated into the script text. The binary's SHA-256 is now pinned in
+  `action.yml` and checked before it is made executable, curl fails on
+  HTTP errors, and inputs are passed as environment variables.
+- **The build used an old Go patch release.** `go.mod` had no toolchain
+  line, so CI built with Go 1.26.0. `govulncheck` reported 27 advisories
+  reachable from this module's code, 26 of them standard-library fixes.
+  Now `toolchain go1.26.11`, `klauspost/compress` v1.20.2, and 0
+  reachable.
+- **A shared report disclosed the owner's account id.** The signed
+  message, published so a recipient can check it, contained the user id.
+  Version 2 entries sign an opaque tenant reference instead. Version 1
+  entries cannot be changed without re-signing them.
 - README test section listed 47 tests in a hand-maintained table that had
   been stale since v1.0; replaced with the three commands that run the
   suites and a description of what each covers. The static "tests passing"
@@ -41,9 +82,33 @@ batch is ready, it is merged to `main` and tagged.
 
 ### Added
 
+- **Ledger version 2.** `crypto_hash` now covers the rendered Annex IV
+  document and the risk register as well as the commit and the AI-BOM
+  (formula in `pkg/ledger/chain.go`; migration 00015 adds
+  `proof_drills.chain_version`). `/api/public/report` returns an
+  `integrity` block with the digests the hash is computed from, recomputed
+  from stored content on every request. `/api/verify-chain` reports
+  `documentBound` and a `documentNote` when some entries are version 1.
+  **Existing entries stay version 1 and are reported as such** — upgrading
+  them would mean re-signing history.
+- **`aicap --verify-report <url | file> [--public-key <b64>]`** — checks a
+  shared report as its recipient would and reports three results
+  separately: signature valid, signed bytes name this entry, document text
+  is what was signed. Exit 0 only when all three hold.
+- **`--no-fail`** — report the verdict (stderr and JSON) but exit 0. For
+  export jobs where a separate job gates the pipeline.
+- `go vet` (both build configurations) and `govulncheck` in CI.
 - `LICENSE` (MIT). The README and the site footer have always said the CLI
   is MIT-licensed, but no licence file was ever committed, so GitHub
   reported the repository as unlicensed.
+
+### Changed
+
+- **CLI diagnostics moved from stdout to stderr.** Anything that parsed the
+  mixed stream by position will need to read stdout as JSON instead. The
+  GitHub Action is updated in the same release.
+- Release builds use `-buildvcs=false` so the binary's digest does not
+  depend on the commit that records it in `action.yml`.
 
 ## [1.7.4] — 2026-08-02 — PDF footer says "Exported", not "Generated"
 

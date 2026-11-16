@@ -54,13 +54,13 @@ func init() {
 	if err != nil {
 		log.Println("Could not load libraries.json, using default libraries.")
 		targetAILibraries = map[string]types.LibraryMeta{
-			"openai":       {"High", "External LLM API Call (OpenAI)"},
-			"anthropic":    {"High", "External LLM API Call (Anthropic)"},
-			"langchain":    {"Medium", "LLM Orchestration Framework"},
-			"torch":        {"High", "PyTorch Machine Learning Framework"},
-			"tensorflow":   {"High", "TensorFlow Machine Learning Framework"},
-			"scikit-learn": {"Low", "Traditional Machine Learning Library"},
-			"transformers": {"High", "Hugging Face Transformers"},
+			"openai":       {Risk: "High", Desc: "External LLM API Call (OpenAI)"},
+			"anthropic":    {Risk: "High", Desc: "External LLM API Call (Anthropic)"},
+			"langchain":    {Risk: "Medium", Desc: "LLM Orchestration Framework"},
+			"torch":        {Risk: "High", Desc: "PyTorch Machine Learning Framework"},
+			"tensorflow":   {Risk: "High", Desc: "TensorFlow Machine Learning Framework"},
+			"scikit-learn": {Risk: "Low", Desc: "Traditional Machine Learning Library"},
+			"transformers": {Risk: "High", Desc: "Hugging Face Transformers"},
 		}
 	} else {
 		if err := json.Unmarshal(libFile, &targetAILibraries); err != nil {
@@ -427,8 +427,9 @@ func PerformScan(scanDir string) types.AIBOM {
 	// context a static scan cannot observe.
 	bom.ProhibitedPractices = compliance.DetectProhibitedPractices(bom)
 
-	// Phase: EU AI Act Article 50 transparency duties (Wave 21). Applies
-	// from 2 Aug 2026, same date as the high-risk regime. Unlike Article
+	// Phase: EU AI Act Article 50 transparency duties (Wave 21). In force
+	// since 2 Aug 2026; the high-risk regime was deferred to Dec 2027 but
+	// Article 50 was not. Unlike Article
 	// 5 these forbid nothing — they require disclosure — so the output is
 	// a duty list with the evidence found for each, not a verdict.
 	bom.TransparencyObligations = compliance.DetectTransparencyObligations(bom)

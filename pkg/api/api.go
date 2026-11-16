@@ -3,7 +3,6 @@ package api
 import (
 	"context"
 	"crypto/rand"
-	"crypto/sha256"
 	"database/sql"
 	_ "embed"
 	"encoding/base64"
@@ -34,6 +33,12 @@ import (
 
 //go:embed openapi.json
 var openapiJSON []byte
+
+// maxProofBodyBytes caps a /api/save-proof upload. A BOM entry is a few
+// hundred bytes, so 8 MB is room for tens of thousands of findings —
+// well past any real repository — while keeping a single request from
+// holding an unbounded buffer.
+const maxProofBodyBytes = 8 << 20
 
 // RegisterRoutes wires all AIcap HTTP handlers onto `mux`. `db` may be nil in
 // local/headless mode — in that case the SaaS-only endpoints short-circuit to
@@ -278,8 +283,29 @@ func RegisterRoutes(mux *http.ServeMux, db *sql.DB, isCloudSaaS bool) {
 			}
 		}
 
+		// Bound the body and refuse anything that is not a JSON document.
+		//
+		// Both checks were missing. The decode error was discarded, so a
+		// truncated upload, an HTML error page from a proxy, or an empty
+		// body all decoded to a zero-value BOM — which was then rendered
+		// into an Annex IV, hashed, signed, and appended to the caller's
+		// ledger as if it were a scan that found nothing. A ledger entry
+		// has to mean a scan was received. And without a size cap, any
+		// account holder could stream an arbitrarily large body into the
+		// decoder.
+		r.Body = http.MaxBytesReader(w, r.Body, maxProofBodyBytes)
 		var bom types.AIBOM
-		json.NewDecoder(r.Body).Decode(&bom)
+		if err := json.NewDecoder(r.Body).Decode(&bom); err != nil {
+			var tooLarge *http.MaxBytesError
+			if errors.As(err, &tooLarge) {
+				http.Error(w, "Payload too large: an AI-BOM may be at most 8 MB", http.StatusRequestEntityTooLarge)
+				return
+			}
+			httplog.From(r.Context()).Info("save-proof rejected: body is not a JSON AI-BOM",
+				slog.String("user_id", userID), slog.Any("error", err))
+			http.Error(w, "Bad request: body must be a JSON AI-BOM as produced by `aicap --cli`", http.StatusBadRequest)
+			return
+		}
 		bomJSON, _ := json.Marshal(bom)
 
 		var projectID string
@@ -421,16 +447,34 @@ func RegisterRoutes(mux *http.ServeMux, db *sql.DB, isCloudSaaS bool) {
 		// we hashed the raw Go output here, every verify-chain run would report
 		// a payload-tamper false positive on its own writes. Round-tripping
 		// through `$1::jsonb::text` returns exactly what verify-chain will read.
-		var canonicalBOM string
+		// The risk register is JSONB too and is canonicalised the same way,
+		// for the same reason: from ledger V2 it is inside the hash.
+		var canonicalBOM, canonicalRegister string
 		if err := tx.QueryRowContext(r.Context(),
-			`SELECT $1::jsonb::text`, string(bomJSON),
-		).Scan(&canonicalBOM); err != nil {
+			`SELECT $1::jsonb::text, $2::jsonb::text`, string(bomJSON), string(registerJSON),
+		).Scan(&canonicalBOM, &canonicalRegister); err != nil {
 			httplog.From(r.Context()).Error("canonicalise bom failed", slog.Any("error", err))
 			http.Error(w, "Internal server error", http.StatusInternalServerError)
 			return
 		}
 
-		cryptoHash := computeChainHash(commitSha, []byte(canonicalBOM), prevHash.String)
+		// Ledger V2: the chain hash covers the rendered Annex IV document
+		// and the risk register as well as the BOM.
+		//
+		// Under V1 it covered the commit and the BOM only. The Annex IV
+		// text — the thing an auditor is actually shown through a share
+		// link — sat in the next column over, outside the hash and so
+		// outside the signature. It could be edited in the database and
+		// both verify-chain and the report's signature would still pass,
+		// while the report page told the reader the record "has not been
+		// altered". V2 closes that: change one byte of the stored
+		// document and the recomputed hash no longer matches the signed
+		// one. See pkg/ledger/chain.go for the formula.
+		cryptoHash := ledger.ChainHashV2(commitSha, prevHash.String, ledger.Content{
+			BOM:          []byte(canonicalBOM),
+			AnnexIV:      []byte(annexIVMarkdown),
+			RiskRegister: []byte(canonicalRegister),
+		}.Digests())
 
 		// Sign the entry (Wave 17). The chain alone proves internal
 		// consistency; anyone with write access to this database could
@@ -438,17 +482,18 @@ func RegisterRoutes(mux *http.ServeMux, db *sql.DB, isCloudSaaS bool) {
 		// signing key lives in the process environment, never in the
 		// database, so rewriting history requires forging a signature
 		// rather than running an UPDATE.
-		entry := ledger.Entry{UserID: userID, CommitSha: commitSha, CryptoHash: cryptoHash}
+		entry := ledger.Entry{Version: ledger.V2, UserID: userID, CommitSha: commitSha, CryptoHash: cryptoHash}
 		signature := ledgerSigner.Sign(entry)
 		signingKeyID := ledgerSigner.KeyID()
 
 		if _, err := tx.ExecContext(r.Context(), `
-			INSERT INTO proof_drills (project_id, user_id, commit_sha, ai_bom_json, risk_register_state, annex_iv_markdown, crypto_hash, prev_hash, signature, signing_key_id)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+			INSERT INTO proof_drills (project_id, user_id, commit_sha, ai_bom_json, risk_register_state, annex_iv_markdown, crypto_hash, prev_hash, signature, signing_key_id, chain_version)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
 			projectID, nullableUserID, commitSha, bomJSON, registerJSON, annexIVMarkdown, cryptoHash,
 			sql.NullString{String: prevHash.String, Valid: prevHash.Valid},
 			sql.NullString{String: signature, Valid: signature != ""},
 			sql.NullString{String: signingKeyID, Valid: signingKeyID != ""},
+			ledger.V2,
 		); err != nil {
 			httplog.From(r.Context()).Error("insert proof_drill failed", slog.Any("error", err))
 			http.Error(w, "Internal server error", http.StatusInternalServerError)
@@ -787,17 +832,24 @@ func RegisterRoutes(mux *http.ServeMux, db *sql.DB, isCloudSaaS bool) {
 		// entry, and in local (non-SaaS) mode there is no authenticated
 		// caller to ask. Reading it back is also the stricter check —
 		// a row whose user_id was altered no longer verifies.
+		//
+		// chain_version selects the hash formula per row. The document
+		// and the risk register are read back too, because from V2 they
+		// are inside the hash — that is the check that makes an edit to
+		// the stored Annex IV text visible here.
+		const verifyColumns = `commit_sha, ai_bom_json::text, crypto_hash, prev_hash, signature, user_id::text,
+				       chain_version, annex_iv_markdown, COALESCE(risk_register_state::text, '')`
 		var rows *sql.Rows
 		var err error
 		if isCloudSaaS {
 			rows, err = db.QueryContext(r.Context(), `
-				SELECT commit_sha, ai_bom_json::text, crypto_hash, prev_hash, signature, user_id::text
+				SELECT `+verifyColumns+`
 				FROM proof_drills
 				WHERE user_id = $1
 				ORDER BY created_at ASC, id ASC`, auth.UserID(r))
 		} else {
 			rows, err = db.QueryContext(r.Context(), `
-				SELECT commit_sha, ai_bom_json::text, crypto_hash, prev_hash, signature, user_id::text
+				SELECT `+verifyColumns+`
 				FROM proof_drills
 				ORDER BY created_at ASC, id ASC`)
 		}
@@ -809,16 +861,19 @@ func RegisterRoutes(mux *http.ServeMux, db *sql.DB, isCloudSaaS bool) {
 		defer rows.Close()
 
 		var (
-			length       int
-			expectedPrev string
-			seenFirst    bool
-			signedCount  int
+			length        int
+			expectedPrev  string
+			seenFirst     bool
+			signedCount   int
+			documentBound int
 		)
 		for rows.Next() {
-			var commitSha, storedHash string
+			var commitSha, storedHash, annexIV, registerJSON string
 			var bomJSON []byte
 			var prevHash, signature, rowUserID sql.NullString
-			if err := rows.Scan(&commitSha, &bomJSON, &storedHash, &prevHash, &signature, &rowUserID); err != nil {
+			var chainVersion int
+			if err := rows.Scan(&commitSha, &bomJSON, &storedHash, &prevHash, &signature, &rowUserID,
+				&chainVersion, &annexIV, &registerJSON); err != nil {
 				httplog.From(r.Context()).Error("verify-chain scan failed", slog.Any("error", err))
 				http.Error(w, "Internal server error", http.StatusInternalServerError)
 				return
@@ -848,16 +903,40 @@ func RegisterRoutes(mux *http.ServeMux, db *sql.DB, isCloudSaaS bool) {
 				}
 			}
 
-			// Per-row payload check.
-			recomputed := computeChainHash(commitSha, bomJSON, prevHash.String)
-			if recomputed != storedHash {
+			// Per-row payload check, under the formula the row was written
+			// with. A version this build does not know is reported as
+			// such: guessing a formula would turn "cannot verify" into a
+			// false "tampered" — or a false "ok".
+			recomputed, err := ledger.ChainHash(chainVersion, commitSha, prevHash.String, ledger.Content{
+				BOM:          bomJSON,
+				AnnexIV:      []byte(annexIV),
+				RiskRegister: []byte(registerJSON),
+			})
+			if err != nil {
 				json.NewEncoder(w).Encode(map[string]any{
 					"ok":       false,
 					"brokenAt": storedHash,
-					"reason":   "stored crypto_hash does not match recomputed hash (row payload altered)",
+					"reason":   "entry has an unknown ledger version; this service cannot verify it",
 					"length":   length,
 				})
 				return
+			}
+			if recomputed != storedHash {
+				reason := "stored crypto_hash does not match recomputed hash (row payload altered)"
+				if chainVersion >= ledger.V2 {
+					reason = "stored crypto_hash does not match recomputed hash (row payload altered: " +
+						"the commit, AI-BOM, Annex IV document or risk register differs from what was recorded)"
+				}
+				json.NewEncoder(w).Encode(map[string]any{
+					"ok":       false,
+					"brokenAt": storedHash,
+					"reason":   reason,
+					"length":   length,
+				})
+				return
+			}
+			if chainVersion >= ledger.V2 {
+				documentBound++
 			}
 
 			// Signature check (Wave 17). This is the check the hash chain
@@ -875,6 +954,7 @@ func RegisterRoutes(mux *http.ServeMux, db *sql.DB, isCloudSaaS bool) {
 			// unqualified "ok".
 			if signature.Valid && signature.String != "" {
 				entry := ledger.Entry{
+					Version:    chainVersion,
 					UserID:     rowUserID.String,
 					CommitSha:  commitSha,
 					CryptoHash: storedHash,
@@ -901,6 +981,10 @@ func RegisterRoutes(mux *http.ServeMux, db *sql.DB, isCloudSaaS bool) {
 			"unsigned":      length - signedCount,
 			"signingKeyId":  ledgerSigner.KeyID(),
 			"publicKeyPath": "/api/ledger/public-key",
+			// How many entries have their Annex IV document and risk
+			// register inside the hash (ledger V2). The rest are V1: their
+			// hash covers the commit and the AI-BOM only.
+			"documentBound": documentBound,
 		}
 		// Say plainly when a chain carries no cryptographic attribution
 		// at all, rather than leaving "ok: true" to imply more than it
@@ -909,6 +993,15 @@ func RegisterRoutes(mux *http.ServeMux, db *sql.DB, isCloudSaaS bool) {
 			resp["note"] = "Some entries are unsigned: they were written before ledger signing " +
 				"was enabled. Unsigned entries are consistent with the chain but cannot be " +
 				"attributed to this service."
+		}
+		// Same principle for the document binding. "ok: true" on a V1
+		// entry means its commit and BOM are intact; it says nothing
+		// about the stored Annex IV text, and a caller should not have
+		// to know the ledger's history to work that out.
+		if documentBound < length {
+			resp["documentNote"] = "Some entries predate ledger version 2: their hash covers the commit " +
+				"and the AI-BOM but not the rendered Annex IV document or the risk register, so this " +
+				"check cannot detect a change to those for these entries."
 		}
 		json.NewEncoder(w).Encode(resp)
 	}
@@ -1051,18 +1144,23 @@ func RegisterRoutes(mux *http.ServeMux, db *sql.DB, isCloudSaaS bool) {
 		}
 		var (
 			markdown, commitSha, cryptoHash    string
-			projectName                        sql.NullString
+			bomText, registerText              string
+			projectName, prevHash              sql.NullString
 			signature, signingKeyID, ownerUser sql.NullString
 			createdAt                          time.Time
+			chainVersion                       int
 		)
 		err := db.QueryRow(
 			`SELECT pd.annex_iv_markdown, pd.commit_sha, pd.crypto_hash, pd.created_at, p.name,
-			        pd.signature, pd.signing_key_id, pd.user_id::text
+			        pd.signature, pd.signing_key_id, pd.user_id::text,
+			        pd.chain_version, pd.prev_hash, pd.ai_bom_json::text,
+			        COALESCE(pd.risk_register_state::text, '')
 			 FROM proof_drills pd
 			 LEFT JOIN projects p ON p.id = pd.project_id
 			 WHERE pd.share_token = $1`, token,
 		).Scan(&markdown, &commitSha, &cryptoHash, &createdAt, &projectName,
-			&signature, &signingKeyID, &ownerUser)
+			&signature, &signingKeyID, &ownerUser,
+			&chainVersion, &prevHash, &bomText, &registerText)
 		if err == sql.ErrNoRows {
 			http.Error(w, "Report not found", http.StatusNotFound)
 			return
@@ -1081,6 +1179,45 @@ func RegisterRoutes(mux *http.ServeMux, db *sql.DB, isCloudSaaS bool) {
 			"projectName": projectName.String,
 		}
 
+		// Integrity block (ledger V2). This is what lets a recipient tie
+		// the document in front of them to the signature, rather than
+		// only checking that *a* signature exists.
+		//
+		// The digests are computed here, from the stored content, on
+		// every request — never read from a column. If the stored
+		// document has been edited, the digest published here changes
+		// with it, the chain hash recomputed from the digests no longer
+		// equals cryptoHash, and cryptoHash is what the signature names.
+		// A stored digest would simply be edited along with the text.
+		//
+		// The BOM itself is not returned: the recipient gets its digest,
+		// which is all the recomputation needs, and the report owner
+		// keeps their full component inventory to themselves.
+		integrity := map[string]any{"chainVersion": chainVersion}
+		if chainVersion >= ledger.V2 {
+			d := ledger.Content{
+				BOM:          []byte(bomText),
+				AnnexIV:      []byte(markdown),
+				RiskRegister: []byte(registerText),
+			}.Digests()
+			integrity["documentCovered"] = true
+			integrity["prevHash"] = prevHash.String
+			integrity["bomSha256"] = d.BOM
+			integrity["annexIvSha256"] = d.AnnexIV
+			integrity["riskRegisterSha256"] = d.RiskRegister
+			integrity["howToCheck"] = "1) SHA-256 the `markdown` field (UTF-8 bytes) and compare with annexIvSha256. " +
+				"2) Recompute cryptoHash as SHA-256 of the six lines \"aicap-chain-v2\", prevHash, bomSha256, " +
+				"annexIvSha256, riskRegisterSha256, commitSha joined by a single newline (no trailing newline). " +
+				"3) Check the attestation signature, whose signed message ends with that cryptoHash. " +
+				"Or run: aicap --verify-report <this URL>."
+		} else {
+			integrity["documentCovered"] = false
+			integrity["note"] = "This entry was written under ledger version 1. Its hash covers the commit " +
+				"and the AI-BOM, not the rendered document, so a signature here attributes the scan record " +
+				"to AIcap but cannot show that this text is byte-for-byte what was written at scan time."
+		}
+		resp["integrity"] = integrity
+
 		// Attestation block (Wave 17). Without this, a shared report was
 		// a page the report's own subject could have written, and the
 		// recipient had no way to tell. Publishing the signature, the
@@ -1092,13 +1229,36 @@ func RegisterRoutes(mux *http.ServeMux, db *sql.DB, isCloudSaaS bool) {
 		// user_id is deliberately NOT returned: it is the tenant's
 		// internal identifier and the recipient does not need it. The
 		// signed message is published pre-composed instead, so the
-		// verifier gets exactly the bytes to check without us disclosing
-		// the tenant ID as a separate field.
+		// verifier gets exactly the bytes to check.
+		//
+		// Under ledger V1 those bytes contain the user id, so a recipient
+		// who decodes them can read it — the "not returned" above was
+		// true of the JSON fields and not of the payload. V2 signs an
+		// opaque tenant reference instead (ledger.TenantRef). V1 entries
+		// cannot be changed without re-signing them, so they keep the
+		// disclosure they were written with.
 		if signature.Valid && signature.String != "" {
 			entry := ledger.Entry{
+				Version:    chainVersion,
 				UserID:     ownerUser.String,
 				CommitSha:  commitSha,
 				CryptoHash: cryptoHash,
+			}
+			// State what a valid signature proves for THIS entry. The
+			// previous text said the record "has not been altered since"
+			// for every entry, which a V1 signature cannot support for
+			// the document being displayed.
+			howToVerify := "Base64-decode signedMessage and signature, fetch the Ed25519 " +
+				"public key from publicKeyPath, and check the signature over those bytes. " +
+				"A valid signature proves AIcap recorded a ledger entry for this commit with " +
+				"this cryptoHash. "
+			if chainVersion >= ledger.V2 {
+				howToVerify += "Because this entry's cryptoHash covers the document (see the " +
+					"integrity block), it also proves the text you were sent is the text recorded " +
+					"at scan time — including against changes by the party that shared it with you."
+			} else {
+				howToVerify += "This entry predates ledger version 2, so its cryptoHash does not " +
+					"cover the document text; see the integrity block."
 			}
 			resp["attestation"] = map[string]any{
 				"signature":     signature.String,
@@ -1106,10 +1266,7 @@ func RegisterRoutes(mux *http.ServeMux, db *sql.DB, isCloudSaaS bool) {
 				"algorithm":     "Ed25519",
 				"signingKeyId":  signingKeyID.String,
 				"publicKeyPath": "/api/ledger/public-key",
-				"howToVerify": "Base64-decode signedMessage and signature, fetch the Ed25519 " +
-					"public key from publicKeyPath, and check the signature over those bytes. " +
-					"A valid signature proves this record was produced by AIcap and has not " +
-					"been altered since — including by the party that shared it with you.",
+				"howToVerify":   howToVerify,
 			}
 		} else {
 			// Say so rather than omitting the field. A recipient who sees
@@ -1891,20 +2048,6 @@ func customerID(c *stripe.Customer) string {
 	return c.ID
 }
 
-// computeChainHash is the canonical crypto_hash formula for proof_drills.
-// Used by both save-proof (at insert) and verify-chain (at verify); they
-// must match exactly or every row looks tampered.
-//
-// When prevHash == "" we fall through to the pre-Wave-4 formula
-// (sha256(commit_sha || ai_bom_json)), so rows written before migration
-// 00010 still hash-match. New non-genesis rows mix in the previous
-// crypto_hash so any historical edit breaks every later link.
-func computeChainHash(commitSha string, bomJSON []byte, prevHash string) string {
-	h := sha256.New()
-	h.Write([]byte(commitSha))
-	h.Write(bomJSON)
-	if prevHash != "" {
-		h.Write([]byte(prevHash))
-	}
-	return hex.EncodeToString(h.Sum(nil))
-}
+// The crypto_hash formulas live in pkg/ledger (ChainHashV1 / ChainHashV2):
+// save-proof, verify-chain and the public report must agree byte for
+// byte, and a third party verifying a report needs the same function.
