@@ -61,9 +61,15 @@ This is usually the more important half of the answer.
 | Supabase / AWS | Managed PostgreSQL database | Ireland (`eu-west-1`) |
 | Scaleway SAS | Backend compute + container registry | France (`fr-par`) |
 | Stripe Payments Europe Ltd | Subscription billing | Ireland (+ US for some billing operations) |
-| Vercel Inc. | Static frontend CDN (no customer data at rest) | Global edge |
+| Vercel Inc. | Static frontend CDN (no customer data at rest); cookieless aggregate page-view analytics for the website | Global edge |
 
 ## Change history
+
+- **November 2026** — Cookieless, aggregate page-view analytics (Vercel Web
+  Analytics) added to the website. It sets no cookies and receives no
+  account, project or report data; share-link tokens and payment session
+  ids are stripped from page addresses before anything is sent. The CLI
+  and self-hosted deployments are unaffected.
 
 - **June 2026** — Backend compute migrated from Render (US) to Scaleway
   (Paris). The database was already on Supabase Ireland, so this moved the

@@ -3,6 +3,7 @@ import { Shield, CheckCircle, AlarmClock, MailCheck } from 'lucide-react';
 
 import { supabase } from '../lib/supabase.js';
 import { nextMilestone } from '../lib/deadline.js';
+import { EVENTS, track } from '../lib/analytics.js';
 import SampleReportSection from './SampleReportSection.jsx';
 import PricingSection from './PricingSection.jsx';
 import FAQSection from './FAQSection.jsx';
@@ -59,6 +60,7 @@ export default function LandingAuth() {
         // show a "check your email" panel instead of silently resetting
         // the form. With confirmation off, a session is present and
         // onAuthStateChange takes over exactly as before.
+        track(EVENTS.SIGNUP_SUBMITTED);
         if (!data.session) setEmailSent(true);
       } else {
         const { error } = await supabase.auth.signInWithPassword({
@@ -66,6 +68,7 @@ export default function LandingAuth() {
           password: authForm.password,
         });
         if (error) throw error;
+        track(EVENTS.SIGNED_IN);
       }
     } catch (err) {
       alert(err.message);

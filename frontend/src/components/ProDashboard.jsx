@@ -3,6 +3,7 @@ import React from 'react';
 import { apiFetch } from '../lib/supabase.js';
 import { AICAP_VERSION } from '../lib/version.js';
 import { useCheckout } from '../lib/useCheckout.js';
+import { EVENTS, track } from '../lib/analytics.js';
 import KeyVault from './KeyVault.jsx';
 import HistoryTable from './HistoryTable.jsx';
 import DriftCard from './DriftCard.jsx';
@@ -105,6 +106,7 @@ export default function ProDashboard({
             }, onTokenRefresh);
             if (!resp.ok) throw new Error(`share failed: ${resp.status}`);
             const { token } = await resp.json();
+            track(EVENTS.REPORT_SHARED);
             return `${window.location.origin}/?report=${token}`;
           }}
         />

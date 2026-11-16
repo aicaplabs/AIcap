@@ -9,6 +9,18 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 Trial of new features lands on `development` first. Once a stable
 batch is ready, it is merged to `main` and tagged.
 
+### Added
+
+- **Website analytics** (Vercel Web Analytics): cookieless page views plus
+  six funnel events, on the hosted site only. Page addresses are redacted
+  before sending — a share-link token, a Stripe session id and the URL
+  fragment never leave the browser — and the query string is an allowlist,
+  so a parameter added later is private by default. The privacy policy and
+  the data-residency guide describe it.
+- Landing page repositioned on what applies now (AI inventory, Article 5,
+  Article 50) and a guide on the 2 December 2026 Article 50(2) marking
+  date.
+
 ## [1.8.0] — 2026-11-16 — Document-bound ledger, valid SBOM output, corrected AI Act dates
 
 Driven by an end-to-end review rather than a feature request. Every item

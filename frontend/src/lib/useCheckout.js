@@ -1,6 +1,7 @@
 import { useState } from 'react';
 
 import { apiFetch } from './supabase.js';
+import { EVENTS, track } from './analytics.js';
 
 // Shared Stripe-checkout starter used by both the Paywall and the
 // trial-banner "Subscribe" control, so there is a single, tested path
@@ -26,6 +27,7 @@ export function useCheckout(onTokenRefresh) {
       }
       const data = await response.json();
       if (data.url) {
+        track(EVENTS.CHECKOUT_STARTED);
         window.location.href = data.url; // Redirect to Stripe
       } else {
         throw new Error('Checkout session did not return a URL.');

@@ -3,6 +3,7 @@ import { Shield, FileText, ArrowRight, ShieldAlert } from 'lucide-react';
 
 import { API_BASE_URL } from '../lib/supabase.js';
 import { markdownToHtml, exportAnnexIVPdf } from '../lib/annexIVPdf.js';
+import { EVENTS, track } from '../lib/analytics.js';
 
 // Public, unauthenticated view of a shared Annex IV report — the page an
 // auditor or customer lands on when a proof-drill owner sends them a
@@ -21,7 +22,10 @@ export default function PublicReport({ token }) {
         );
         if (!resp.ok) throw new Error(`status ${resp.status}`);
         const report = await resp.json();
-        if (!cancelled) setState({ status: 'loaded', report });
+        if (!cancelled) {
+          setState({ status: 'loaded', report });
+          track(EVENTS.SHARED_REPORT_VIEWED);
+        }
       } catch {
         if (!cancelled) setState({ status: 'error', report: null });
       }
@@ -100,7 +104,10 @@ function ReportBody({ report }) {
             Immutable Ledger Record
           </span>
           <button
-            onClick={() => exportAnnexIVPdf(report.markdown, { hash: report.cryptoHash })}
+            onClick={() => {
+              track(EVENTS.PDF_EXPORTED, { source: 'shared_report' });
+              exportAnnexIVPdf(report.markdown, { hash: report.cryptoHash });
+            }}
             className="text-xs flex items-center gap-1 text-white bg-indigo-600 hover:bg-indigo-500 px-3 py-1 rounded transition"
           >
             <FileText className="w-3 h-3" /> Export PDF
