@@ -2,27 +2,27 @@ import React, { useState } from 'react';
 import { Shield, CheckCircle, AlarmClock, MailCheck } from 'lucide-react';
 
 import { supabase } from '../lib/supabase.js';
-import { daysUntilHighRisk } from '../lib/deadline.js';
+import { nextMilestone } from '../lib/deadline.js';
 import SampleReportSection from './SampleReportSection.jsx';
 import PricingSection from './PricingSection.jsx';
 import FAQSection from './FAQSection.jsx';
 import MarketingFooter from './MarketingFooter.jsx';
 
-// Deadline chip: counts down to 2 December 2027, when the high-risk
-// regime (and with it Annex IV) applies to Annex III systems, and
-// switches to past-tense copy once that date passes.
+// Deadline chip: counts down to the next dated AI Act obligation (see
+// lib/deadline.js) and switches to past-tense copy once the last one has
+// passed.
 //
-// Both strings name the obligation and the date. The previous version
+// Every string names the obligation and the date. The original version
 // said "EU AI Act obligations are now in force" with neither — which
 // became false for the high-risk regime the moment Regulation (EU)
 // 2026/1744 moved it, and nothing on the page could tell a reader so.
 function DeadlineBadge() {
-  const days = daysUntilHighRisk();
-  if (days > 0) {
+  const next = nextMilestone();
+  if (next) {
     return (
       <div className="inline-flex items-center gap-2 px-3 py-1 bg-amber-100 text-amber-800 text-sm font-bold rounded-full">
-        <AlarmClock className="w-4 h-4" />
-        {days} day{days === 1 ? '' : 's'} until high-risk obligations apply — 2 December 2027
+        <AlarmClock className="w-4 h-4 shrink-0" />
+        {next.days} day{next.days === 1 ? '' : 's'} until {next.upcoming} — {next.label}
       </div>
     );
   }
@@ -82,26 +82,33 @@ export default function LandingAuth() {
         <div className="space-y-6">
           <DeadlineBadge />
           <div className="inline-flex items-center gap-2 px-3 py-1 bg-indigo-100 text-indigo-700 text-sm font-bold rounded-full ml-2">
-            <Shield className="w-4 h-4" /> EU AI Act Ready
+            <Shield className="w-4 h-4" /> Free, open-source CLI
           </div>
+          {/* The hero leads with what a scan can actually deliver today:
+              an inventory, and the duties that already apply to it. The
+              previous copy ("Automate compliance", "EU AI Act Ready")
+              promised an outcome no scanner produces, and led with Annex
+              IV — a high-risk obligation that does not apply until
+              December 2027 and never applies to most of the systems
+              people build on a model API. */}
           <h2 className="text-4xl lg:text-5xl font-extrabold text-slate-900 leading-tight">
-            Secure your AI supply chain. <span className="text-indigo-600">Automate compliance.</span>
+            Know what AI is in your codebase. <span className="text-indigo-600">Be able to prove it.</span>
           </h2>
           <p className="text-lg text-slate-600 leading-relaxed">
-            The EU AI Act's Article 50 transparency duties have applied since 2 August 2026, and the high-risk regime — including Annex IV technical documentation — applies from 2 December 2027. AIcap runs natively inside your CI/CD pipeline to generate your AI-BOM, track risks, and maintain an Immutable Audit Ledger.
+            AIcap scans every commit for AI libraries, hosted models and model weights, and tells you which EU AI Act duties already attach to them — the Article 5 prohibitions and the Article 50 transparency duties, in force since 2 August 2026. It runs in your own CI pipeline; your source code never leaves it.
           </p>
           <div className="space-y-4 pt-4">
             <div className="flex items-start gap-3">
               <CheckCircle className="w-6 h-6 text-emerald-500 shrink-0" />
-              <p className="text-slate-700"><strong>Shift-Left Compliance:</strong> Automatic Annex IV documentation generation.</p>
+              <p className="text-slate-700"><strong>An AI inventory on every commit:</strong> an AI-BOM in CycloneDX or SPDX, with live vulnerability advisories and the version that fixes them.</p>
             </div>
             <div className="flex items-start gap-3">
               <CheckCircle className="w-6 h-6 text-emerald-500 shrink-0" />
-              <p className="text-slate-700"><strong>DevSecOps Ready:</strong> Native CycloneDX SBOM & OWASP ML Top 10 enrichment.</p>
+              <p className="text-slate-700"><strong>What applies to you today:</strong> Article 5 and Article 50 flagged per component, each with the question a person has to answer. Indicators, never verdicts.</p>
             </div>
             <div className="flex items-start gap-3">
               <CheckCircle className="w-6 h-6 text-emerald-500 shrink-0" />
-              <p className="text-slate-700"><strong>FinOps Tracking:</strong> Identify expensive unoptimized GPU requests before deployment.</p>
+              <p className="text-slate-700"><strong>Ahead of December 2027:</strong> an Annex IV draft that stays current, anchored to a signed ledger an auditor can check without taking your word for it.</p>
             </div>
           </div>
         </div>
