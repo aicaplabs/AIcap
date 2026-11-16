@@ -162,12 +162,17 @@ func TestSignerFromBase64_MalformedKeyIsAHardError(t *testing.T) {
 }
 
 func TestEntryMessage_IsDomainSeparatedAndVersioned(t *testing.T) {
-	msg := string(Entry{UserID: "u", CommitSha: "c", CryptoHash: "h"}.Message())
-	if !strings.HasPrefix(msg, domainSeparator+"|") {
-		t.Errorf("message = %q, want the domain separator first", msg)
+	for version, sep := range map[int]string{V1: domainSeparatorV1, V2: domainSeparatorV2} {
+		msg := string(Entry{Version: version, UserID: "u", CommitSha: "c", CryptoHash: "h"}.Message())
+		if !strings.HasPrefix(msg, sep+"|") {
+			t.Errorf("v%d message = %q, want the domain separator first", version, msg)
+		}
 	}
-	if !strings.Contains(domainSeparator, "-v1") {
-		t.Error("domain separator carries no version; a future format change could be confused with this one")
+	if !strings.Contains(domainSeparatorV1, "-v1") || !strings.Contains(domainSeparatorV2, "-v2") {
+		t.Error("a domain separator carries no version; two formats could be confused with each other")
+	}
+	if domainSeparatorV1 == domainSeparatorV2 {
+		t.Error("V1 and V2 share a domain separator; a signature would be valid under both layouts")
 	}
 }
 
