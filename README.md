@@ -121,7 +121,7 @@ To do it by hand: SHA-256 the `markdown` field and compare it with
 which ends with that hash.
 
 **What a signature proves depends on when the entry was written.** Entries
-recorded from v1.8.0 on use ledger version 2: the hash covers the Annex IV
+recorded since ledger version 2 was introduced use it: the hash covers the Annex IV
 text and the risk register, so a valid signature shows the document you were
 sent is the one recorded at scan time — including against changes by the party
 who sent you the link. Entries recorded before that are version 1: the hash
