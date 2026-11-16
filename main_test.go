@@ -465,3 +465,46 @@ func TestParseCLIArgs_NoFail(t *testing.T) {
 		t.Error("--no-fail not parsed")
 	}
 }
+
+// action.yml downloads a binary and runs it inside other people's CI. For
+// a tool that sells supply-chain assurance, how it does that is part of
+// the product.
+func TestActionYML_VerifiesWhatItDownloads(t *testing.T) {
+	raw, err := os.ReadFile("action.yml")
+	if err != nil {
+		t.Fatalf("read action.yml: %v", err)
+	}
+	action := strings.ReplaceAll(string(raw), "\r\n", "\n")
+
+	// A pinned digest, checked before the binary is made executable.
+	pin := regexp.MustCompile(`(?m)^\s+AICAP_SHA256: ([0-9a-f]{64})$`).FindStringSubmatch(action)
+	if pin == nil {
+		t.Fatal("action.yml pins no SHA-256 for the binary it downloads")
+	}
+	check := strings.Index(action, "sha256sum -c")
+	chmod := strings.Index(action, "chmod +x aicap")
+	if check < 0 {
+		t.Fatal("action.yml never verifies the download against the pinned digest")
+	}
+	if chmod < 0 || chmod < check {
+		t.Error("the binary is made executable before its digest is checked")
+	}
+
+	// curl without -f saves a 404 page as the binary and carries on.
+	for _, line := range strings.Split(action, "\n") {
+		if strings.Contains(line, "curl ") && !strings.HasPrefix(strings.TrimSpace(line), "#") &&
+			!regexp.MustCompile(`curl -[a-zA-Z]*f`).MatchString(line) {
+			t.Errorf("curl without -f: %s", strings.TrimSpace(line))
+		}
+	}
+
+	// Inputs must arrive as environment variables. `${{ inputs.x }}`
+	// inside a run: script is substituted into the script text before the
+	// shell sees it, so an input containing shell syntax is executed.
+	envAssignment := regexp.MustCompile(`^\s+[A-Z_]+: \$\{\{ inputs\.[a-z-]+ \}\}$`)
+	for _, line := range strings.Split(action, "\n") {
+		if strings.Contains(line, "${{ inputs.") && !envAssignment.MatchString(line) {
+			t.Errorf("input interpolated outside an env: assignment: %s", strings.TrimSpace(line))
+		}
+	}
+}
