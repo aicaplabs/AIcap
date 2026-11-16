@@ -36,7 +36,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Run AIcap compliance scan
-        uses: aicaplabs/AIcap@v1.7.4
+        uses: aicaplabs/AIcap@v1.8.0
         with:
           scan-directory: '.'
 ```
@@ -71,7 +71,7 @@ GUAC)? Run the CLI directly with the CycloneDX flag:
 ```yaml
       - name: Generate CycloneDX SBOM
         run: |
-          curl -fsSL https://github.com/aicaplabs/AIcap/releases/download/v1.7.4/aicap-linux-amd64 -o aicap
+          curl -fsSL https://github.com/aicaplabs/AIcap/releases/download/v1.8.0/aicap-linux-amd64 -o aicap
           chmod +x aicap
           ./aicap --cli . --cyclonedx --no-fail > ai-sbom.cdx.json
 

@@ -41,11 +41,11 @@ runs:
         # the tag was cut. Updated together with the version at release
         # time; the release binary is built with -buildvcs=false so its
         # digest does not depend on the commit that records it.
-        AICAP_SHA256: 1598b85d58ae95278718570db188dc5bd4e5c87baae6f6a89f3ca7d04db7bf04
+        AICAP_SHA256: ee7744780b5a8e2be6b84eedb984ad63813090d8b1870d062583611377a67202
       run: |
-        echo "⬇️ Downloading AIcap v1.7.4 statically-linked binary..."
+        echo "⬇️ Downloading AIcap v1.8.0 statically-linked binary..."
         # -f: a 404 or 5xx is an error, not an HTML page saved as "aicap".
-        curl -fsSL --retry 3 https://github.com/aicaplabs/AIcap/releases/download/v1.7.4/aicap-linux-amd64 -o aicap
+        curl -fsSL --retry 3 https://github.com/aicaplabs/AIcap/releases/download/v1.8.0/aicap-linux-amd64 -o aicap
         echo "${AICAP_SHA256}  aicap" | sha256sum -c -
         chmod +x aicap
 

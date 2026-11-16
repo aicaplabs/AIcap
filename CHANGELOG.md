@@ -9,6 +9,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 Trial of new features lands on `development` first. Once a stable
 batch is ready, it is merged to `main` and tagged.
 
+## [1.8.0] — 2026-11-16 — Document-bound ledger, valid SBOM output, corrected AI Act dates
+
+Driven by an end-to-end review rather than a feature request. Every item
+below is either a claim the product made that the code did not support, or
+a documented command that did not work.
+
 ### Fixed
 
 - **The site, README and guides stated the wrong application date for the
