@@ -123,6 +123,17 @@ func (s *Signer) KeyID() string {
 	return pub[:16]
 }
 
+// KeyIDOf is KeyID for a bare public key — what a verifier holds. It lets
+// a third party match the key they were given against the signingKeyId
+// recorded on an entry.
+func KeyIDOf(pub ed25519.PublicKey) string {
+	encoded := base64.StdEncoding.EncodeToString(pub)
+	if len(encoded) < 16 {
+		return encoded
+	}
+	return encoded[:16]
+}
+
 // Sign returns the base64 signature over the canonical entry message,
 // or "" when signing is not configured.
 func (s *Signer) Sign(entry Entry) string {

@@ -83,6 +83,69 @@ describe('PublicReport attestation', () => {
     expect(screen.getByText('/api/ledger/public-key')).toBeInTheDocument();
   });
 
+  const signedAttestation = {
+    signature: 'c2lnbmF0dXJlLWJ5dGVz',
+    signedMessage: 'YWljYXAtbGVkZ2VyLXYyfHR8Y3xo',
+    algorithm: 'Ed25519',
+    publicKeyPath: '/api/ledger/public-key',
+  };
+
+  // What a signature proves depends on the ledger version. For months this
+  // notice said the record "has not been altered since" for every entry,
+  // including ones whose signed hash never covered the document text.
+  it('claims the document is covered only when the ledger hash covers it', async () => {
+    globalThis.fetch.mockResolvedValueOnce(new Response(JSON.stringify({
+      ...baseReport,
+      attestation: signedAttestation,
+      integrity: {
+        chainVersion: 2,
+        documentCovered: true,
+        prevHash: '',
+        bomSha256: 'b'.repeat(64),
+        annexIvSha256: 'a'.repeat(64),
+        riskRegisterSha256: 'f'.repeat(64),
+      },
+    }), { status: 200 }));
+
+    render(<PublicReport token={'f'.repeat(64)} />);
+
+    expect(await screen.findByText(/The ledger hash covers the document below/)).toBeInTheDocument();
+    expect(screen.queryByText(/What this does not cover/)).not.toBeInTheDocument();
+    // The digests a recipient needs to recompute the hash are on the page.
+    expect(screen.getByText('a'.repeat(64))).toBeInTheDocument();
+    expect(screen.getByText('b'.repeat(64))).toBeInTheDocument();
+    expect(screen.getByText(/first entry/)).toBeInTheDocument();
+  });
+
+  it('says what a version 1 signature does not cover', async () => {
+    globalThis.fetch.mockResolvedValueOnce(new Response(JSON.stringify({
+      ...baseReport,
+      attestation: signedAttestation,
+      integrity: { chainVersion: 1, documentCovered: false, note: 'Version 1: the document is not covered.' },
+    }), { status: 200 }));
+
+    render(<PublicReport token={'1'.repeat(64)} />);
+
+    expect(await screen.findByText(/What this does not cover/)).toBeInTheDocument();
+    expect(screen.getByText(/Version 1: the document is not covered\./)).toBeInTheDocument();
+    expect(screen.queryByText(/The ledger hash covers the document below/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/has not been altered/)).not.toBeInTheDocument();
+  });
+
+  it('does not claim document coverage when the backend sends no integrity block', async () => {
+    // An older backend. Absence of the block must read as "not covered",
+    // never as the stronger claim.
+    globalThis.fetch.mockResolvedValueOnce(new Response(JSON.stringify({
+      ...baseReport,
+      attestation: signedAttestation,
+    }), { status: 200 }));
+
+    render(<PublicReport token={'2'.repeat(64)} />);
+
+    expect(await screen.findByText(/What this does not cover/)).toBeInTheDocument();
+    expect(screen.queryByText(/The ledger hash covers the document below/)).not.toBeInTheDocument();
+  });
+
   it('says plainly when a record is unsigned', async () => {
     globalThis.fetch.mockResolvedValueOnce(new Response(JSON.stringify({
       ...baseReport,

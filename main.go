@@ -78,6 +78,13 @@ func main() {
 		return
 	}
 
+	// --verify-report checks a shared report the way its recipient would:
+	// with the report and the ledger's public key, and nothing else. See
+	// verify_report.go.
+	if len(os.Args) > 1 && os.Args[1] == "--verify-report" {
+		os.Exit(runVerifyReport(os.Args[2:], os.Stdout, os.Stderr))
+	}
+
 	// Headless CLI Mode for CI/CD Pipelines
 	if len(os.Args) > 1 && os.Args[1] == "--cli" {
 		os.Exit(runCLI(os.Args[2:], os.Stdout, os.Stderr))
