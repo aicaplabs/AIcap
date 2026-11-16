@@ -38,10 +38,11 @@ runs:
         # fetched from the release: a checksum downloaded from the same
         # place as the binary only detects corruption, while one pinned in
         # the action also detects a release asset that was swapped after
-        # the tag was cut. Updated together with the version at release
+        # the tag was cut. Produced by scripts/build-release.sh, which builds from
+        # a clean export of the tagged source; updated with the version at release
         # time; the release binary is built with -buildvcs=false so its
         # digest does not depend on the commit that records it.
-        AICAP_SHA256: ee7744780b5a8e2be6b84eedb984ad63813090d8b1870d062583611377a67202
+        AICAP_SHA256: 1c5e891baaa46ac0c9a126b9e51d536be4b9a3cc2a6a72e1ac9058cf242fe8c1
       run: |
         echo "⬇️ Downloading AIcap v1.8.0 statically-linked binary..."
         # -f: a 404 or 5xx is an error, not an HTML page saved as "aicap".
