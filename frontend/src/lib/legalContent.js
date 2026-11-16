@@ -6,7 +6,7 @@
 // Grounded in documentation/data-residency.md — when hosting or
 // sub-processors change, update BOTH files in the same commit.
 
-const LAST_UPDATED = '6 July 2026';
+const LAST_UPDATED = '16 November 2026';
 
 const TERMS = `# Terms of Service
 
@@ -151,7 +151,7 @@ from the DPA page).
 | Supabase / AWS | Managed PostgreSQL + authentication | Ireland (eu-west-1) |
 | Scaleway SAS | Backend compute + container registry | France (fr-par) |
 | Stripe Payments Europe Ltd | Subscription billing | Ireland (+ US for some billing operations under Stripe's SCCs) |
-| Vercel Inc. | Static frontend CDN — serves JavaScript only, holds no customer data at rest | Global edge |
+| Vercel Inc. | Static frontend CDN — serves JavaScript only, holds no customer data at rest. Also provides cookieless, aggregate page-view analytics for this website (see section 6) | Global edge |
 
 We will announce sub-processor changes on this page before they take
 effect.
@@ -178,6 +178,17 @@ also lodge a complaint with your local supervisory authority.
 The dashboard uses browser local storage for your Supabase session token
 (strictly functional — it is how you stay signed in). We set no
 advertising or cross-site tracking cookies.
+
+**Website analytics.** This website uses Vercel Web Analytics to count
+page views and a small number of product events (for example, that a
+sign-up form was submitted). It sets no cookies and does not identify or
+follow individual visitors across sites or visits. We attach no account
+identifier, email address, project name or report content to anything it
+receives. Before a page address is reported we remove everything that
+could act as a credential — the token in a shared-report link, the payment
+session id on return from checkout, and the address fragment — so those
+never leave your browser. Analytics runs only on the hosted website; the
+open-source CLI and a self-hosted deployment send nothing.
 
 ## 7. Contact
 

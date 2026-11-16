@@ -77,6 +77,30 @@ const PAGE_CSS = `
   ul.guide-list p { color: #475569; font-size: 14px; margin: 6px 0 0; }
 `;
 
+// Page-view analytics for the guides.
+//
+// The guides are static HTML, not part of the React app, so the app's
+// analytics module never runs on them — and they are where search traffic
+// lands. Vercel serves its Web Analytics script from a per-project path
+// that it hands to the build as JSON in VERCEL_OBSERVABILITY_CLIENT_CONFIG;
+// older projects use the fixed /_vercel/insights path. Outside a Vercel
+// build neither applies and no tag is emitted, so a local build or a
+// self-hosted copy of the guides sends nothing.
+//
+// No URL redaction is needed here, unlike the app: guide URLs carry no
+// tokens.
+function analyticsTag() {
+  let src = '';
+  try {
+    src = JSON.parse(process.env.VERCEL_OBSERVABILITY_CLIENT_CONFIG || '{}')?.analytics?.scriptSrc || '';
+  } catch {
+    src = '';
+  }
+  if (!src && process.env.VERCEL) src = '/_vercel/insights/script.js';
+  if (!/^\/[A-Za-z0-9_\-./]+$/.test(src)) return '';
+  return `<script defer src="${src}"></script>`;
+}
+
 function pageShell({ title, description, canonical, jsonLd, bodyHtml }) {
   return `<!DOCTYPE html>
 <html lang="en">
@@ -92,6 +116,7 @@ function pageShell({ title, description, canonical, jsonLd, bodyHtml }) {
 <meta property="og:url" content="${canonical}">
 <script type="application/ld+json">${JSON.stringify(jsonLd)}</script>
 <style>${PAGE_CSS}</style>
+${analyticsTag()}
 </head>
 <body>
 <header>
