@@ -54,13 +54,13 @@ func init() {
 	if err != nil {
 		log.Println("Could not load libraries.json, using default libraries.")
 		targetAILibraries = map[string]types.LibraryMeta{
-			"openai":       {"High", "External LLM API Call (OpenAI)"},
-			"anthropic":    {"High", "External LLM API Call (Anthropic)"},
-			"langchain":    {"Medium", "LLM Orchestration Framework"},
-			"torch":        {"High", "PyTorch Machine Learning Framework"},
-			"tensorflow":   {"High", "TensorFlow Machine Learning Framework"},
-			"scikit-learn": {"Low", "Traditional Machine Learning Library"},
-			"transformers": {"High", "Hugging Face Transformers"},
+			"openai":       {Risk: "High", Desc: "External LLM API Call (OpenAI)"},
+			"anthropic":    {Risk: "High", Desc: "External LLM API Call (Anthropic)"},
+			"langchain":    {Risk: "Medium", Desc: "LLM Orchestration Framework"},
+			"torch":        {Risk: "High", Desc: "PyTorch Machine Learning Framework"},
+			"tensorflow":   {Risk: "High", Desc: "TensorFlow Machine Learning Framework"},
+			"scikit-learn": {Risk: "Low", Desc: "Traditional Machine Learning Library"},
+			"transformers": {Risk: "High", Desc: "Hugging Face Transformers"},
 		}
 	} else {
 		if err := json.Unmarshal(libFile, &targetAILibraries); err != nil {
